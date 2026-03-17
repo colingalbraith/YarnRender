@@ -1,0 +1,11 @@
+# Compiled binary
+YarnRender
+
+# ImGui config
+imgui.ini
+
+# macOS
+.DS_Store
+
+# Claude
+.claude/
