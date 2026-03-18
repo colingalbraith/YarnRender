@@ -25,6 +25,7 @@ float kk_specPrimary   = 0.60f;
 float kk_specSecondary = 0.35f;
 float kk_shinyPrimary  = 80.0f;
 float kk_shinySecondary = 18.0f;
+float kk_normalInfluence = 0.35f;
 
 // ── Marschner parameters ──
 float m_ambient      = 0.18f;
@@ -33,6 +34,7 @@ float m_betaR        = 0.12f;
 float m_R_strength   = 0.40f;
 float m_TT_strength  = 1.00f;
 float m_TRT_strength = 0.70f;
+float m_normalInfluence = 0.35f;
 
 // ── OpenGL objects ──
 GLuint vao, posVbo, normVbo, tanVbo;
@@ -59,6 +61,16 @@ float camDist = 55.f, camYaw = 0.f, camPitch = 0.25f;
 double prevMouseX, prevMouseY;
 bool mouseLeft = false, mouseRight = false, mouseMiddle = false;
 int windowWidth = 1024, windowHeight = 768;
+
+// ── Deep Opacity Maps ──
+bool  domEnabled     = false;
+float domLayerRange  = 4.0f;
+float domFragOpacity = 0.04f;
+GLuint domDepthFBO = 0, domDepthTex = 0, domDepthRB = 0;
+GLuint domOpacityFBO = 0, domOpacityTex = 0;
+cy::GLSLProgram domDepthProg, domOpacityProg;
+int domResolution = 2048;
+int domDebug = 0;
 
 // ── FPS ──
 double lastFpsTime = 0.0;

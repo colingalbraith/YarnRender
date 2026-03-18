@@ -31,6 +31,7 @@ extern float kk_specPrimary;
 extern float kk_specSecondary;
 extern float kk_shinyPrimary;
 extern float kk_shinySecondary;
+extern float kk_normalInfluence;
 
 // ── Marschner parameters ──
 extern float m_ambient;
@@ -39,6 +40,7 @@ extern float m_betaR;
 extern float m_R_strength;
 extern float m_TT_strength;
 extern float m_TRT_strength;
+extern float m_normalInfluence;
 
 // ── OpenGL objects ──
 extern GLuint vao, posVbo, normVbo, tanVbo;
@@ -65,6 +67,16 @@ extern float camDist, camYaw, camPitch;
 extern double prevMouseX, prevMouseY;
 extern bool mouseLeft, mouseRight, mouseMiddle;
 extern int windowWidth, windowHeight;
+
+// ── Deep Opacity Maps ──
+extern bool  domEnabled;
+extern float domLayerRange;
+extern float domFragOpacity;
+extern GLuint domDepthFBO, domDepthTex, domDepthRB;
+extern GLuint domOpacityFBO, domOpacityTex;
+extern cy::GLSLProgram domDepthProg, domOpacityProg;
+extern int domResolution;
+extern int domDebug;
 
 // ── FPS ──
 extern double lastFpsTime;

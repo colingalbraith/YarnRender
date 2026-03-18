@@ -67,20 +67,70 @@ static void myDisplay()
 	cy::Matrix4f view = cy::Matrix4f::View(eye, cy::Vec3f(0,0,0), cy::Vec3f(0,1,0));
 	cy::Matrix4f model = objectRotation * cy::Matrix4f::Translation(-objectCenter);
 
-	// pass 1: shadow map
+	// light matrices
 	cy::Matrix4f lProj = cy::Matrix4f::Perspective(90.f*(PI/180.f), 1.f, 1.f, 500.f);
 	cy::Matrix4f lView = cy::Matrix4f::View(lightPos, objectCenter, cy::Vec3f(0,1,0));
 	cy::Matrix4f lMat  = lProj * lView;
+	cy::Matrix4f lightVM  = lView * model;   // light-view * model
+	cy::Matrix4f lightMVP = lMat * model;
 
+	// ── DOM pass 1: depth (nearest linear Z per pixel) ──
+	if (domEnabled) {
+		glBindFramebuffer(GL_FRAMEBUFFER, domDepthFBO);
+		glViewport(0, 0, domResolution, domResolution);
+		glClearColor(9999.f, 0.f, 0.f, 1.f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glEnable(GL_DEPTH_TEST);
+
+		domDepthProg.Bind();
+		domDepthProg.SetUniformMatrix4("mvp", lightMVP.cell);
+		domDepthProg.SetUniformMatrix4("lightViewModel", lightVM.cell);
+		glBindVertexArray(vao);
+		glDrawArrays(GL_TRIANGLES, 0, VertexCount);
+
+		// ── DOM pass 2: opacity accumulation ──
+		glBindFramebuffer(GL_FRAMEBUFFER, domOpacityFBO);
+		glViewport(0, 0, domResolution, domResolution);
+		glClearColor(0.f, 0.f, 0.f, 0.f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		glDisable(GL_DEPTH_TEST);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_ONE, GL_ONE); // additive
+
+		domOpacityProg.Bind();
+		domOpacityProg.SetUniformMatrix4("mvp", lightMVP.cell);
+		domOpacityProg.SetUniformMatrix4("lightViewModel", lightVM.cell);
+
+		float D = domLayerRange;
+		domOpacityProg.SetUniform("domLayers", D/6.f, D/2.f, D);
+		domOpacityProg.SetUniform("domFragOpacity", domFragOpacity);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, domDepthTex);
+		domOpacityProg.SetUniform("domDepthMap", 0);
+
+		glBindVertexArray(vao);
+		glDrawArrays(GL_TRIANGLES, 0, VertexCount);
+
+		glDisable(GL_BLEND);
+		glEnable(GL_DEPTH_TEST);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+
+	// ── shadow map pass (classic, always runs for floor) ──
 	renderBuffer.Bind();
 	glClear(GL_DEPTH_BUFFER_BIT);
 	program.Bind();
-	program.SetUniformMatrix4("mvp", (lMat * model).cell);
+	program.SetUniformMatrix4("mvp", lightMVP.cell);
+	// set domLightVM to identity so vDomDepth doesn't produce NaN
+	cy::Matrix4f identMat; identMat.SetIdentity();
+	program.SetUniformMatrix4("domLightVM", identMat.cell);
+	program.SetUniformMatrix4("domLightMVP", identMat.cell);
 	glBindVertexArray(vao);
 	glDrawArrays(GL_TRIANGLES, 0, VertexCount);
 	renderBuffer.Unbind();
 
-	// pass 2: shaded scene
+	// ── main shaded scene ──
 	glViewport(0, 0, windowWidth, windowHeight);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -115,6 +165,7 @@ static void myDisplay()
 	program.SetUniform("kk_specSecondary",  kk_specSecondary);
 	program.SetUniform("kk_shinyPrimary",   kk_shinyPrimary);
 	program.SetUniform("kk_shinySecondary", kk_shinySecondary);
+	program.SetUniform("kk_normalInfluence", kk_normalInfluence);
 	// Marschner params
 	program.SetUniform("m_ambient",      m_ambient);
 	program.SetUniform("m_alphaR",       m_alphaR);
@@ -122,10 +173,30 @@ static void myDisplay()
 	program.SetUniform("m_R_strength",   m_R_strength);
 	program.SetUniform("m_TT_strength",  m_TT_strength);
 	program.SetUniform("m_TRT_strength", m_TRT_strength);
+	program.SetUniform("m_normalInfluence", m_normalInfluence);
 
 	program.SetUniformMatrix4("shadowMatrix", (sMat * model).cell);
+	program.SetUniformMatrix4("domLightVM", lightVM.cell);
+	program.SetUniformMatrix4("domLightMVP", lightMVP.cell);
+
+	// texture bindings: unit 0 = shadow map, unit 1 = DOM depth, unit 2 = DOM opacity
 	renderBuffer.BindTexture(0);
 	program.SetUniform("shadowMap", 0);
+
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, domDepthTex);
+	program.SetUniform("domDepthMap", 1);
+
+	glActiveTexture(GL_TEXTURE2);
+	glBindTexture(GL_TEXTURE_2D, domOpacityTex);
+	program.SetUniform("domOpacityMap", 2);
+
+	program.SetUniform("domEnabled", domEnabled ? 1 : 0);
+	program.SetUniform("domDebug", domDebug);
+	if (domEnabled) {
+		float D = domLayerRange;
+		program.SetUniform("domLayers", D/6.f, D/2.f, D);
+	}
 
 	glBindVertexArray(vao);
 	glDrawArrays(GL_TRIANGLES, 0, VertexCount);
@@ -279,7 +350,8 @@ static void drawImGuiPanel()
 		ImGui::SliderFloat("KK Spec Secondary", &kk_specSecondary,  0.0f, 2.0f);
 		ImGui::SliderFloat("KK Shiny Primary",  &kk_shinyPrimary,   1.0f, 256.0f);
 		ImGui::SliderFloat("KK Shiny Secondary",&kk_shinySecondary,  1.0f, 128.0f);
-		if (ImGui::Button("Reset KK")) { kk_ambient=0.22f; kk_diffuse=0.60f; kk_specPrimary=0.60f; kk_specSecondary=0.35f; kk_shinyPrimary=80.f; kk_shinySecondary=18.f; }
+		ImGui::SliderFloat("KK Normal Influence",&kk_normalInfluence, 0.0f, 1.0f);
+		if (ImGui::Button("Reset KK")) { kk_ambient=0.22f; kk_diffuse=0.60f; kk_specPrimary=0.60f; kk_specSecondary=0.35f; kk_shinyPrimary=80.f; kk_shinySecondary=18.f; kk_normalInfluence=0.35f; }
 	}
 
 	// ── Marschner params ──
@@ -290,7 +362,21 @@ static void drawImGuiPanel()
 		ImGui::SliderFloat("R strength",       &m_R_strength,   0.0f, 2.0f);
 		ImGui::SliderFloat("TT strength",      &m_TT_strength,  0.0f, 3.0f);
 		ImGui::SliderFloat("TRT strength",     &m_TRT_strength, 0.0f, 3.0f);
-		if (ImGui::Button("Reset M")) { m_ambient=0.18f; m_alphaR=-0.07f; m_betaR=0.12f; m_R_strength=0.40f; m_TT_strength=1.0f; m_TRT_strength=0.70f; }
+		ImGui::SliderFloat("M Normal Influence", &m_normalInfluence, 0.0f, 1.0f);
+		if (ImGui::Button("Reset M")) { m_ambient=0.18f; m_alphaR=-0.07f; m_betaR=0.12f; m_R_strength=0.40f; m_TT_strength=1.0f; m_TRT_strength=0.70f; m_normalInfluence=0.35f; }
+	}
+
+	// ── Deep Opacity Maps ──
+	if (ImGui::CollapsingHeader("Deep Opacity Maps", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Checkbox("Enable DOM", &domEnabled);
+		if (domEnabled) {
+			ImGui::SliderFloat("Layer range", &domLayerRange, 0.5f, 20.f, "%.1f units");
+			ImGui::SliderFloat("Frag opacity", &domFragOpacity, 0.005f, 1.0f, "%.3f");
+			float D = domLayerRange;
+			ImGui::Text("Layers: d1=%.2f  d2=%.2f  d3=%.2f", D/6.f, D/2.f, D);
+			ImGui::Combo("Debug view", &domDebug, "Off\0Depth map\0Opacity map\0Visibility\0");
+		if (ImGui::Button("Reset DOM")) { domLayerRange = 4.f; domFragOpacity = 0.04f; domDebug = 0; }
+		}
 	}
 
 	// ── Camera ──
@@ -434,30 +520,27 @@ int main(int /*argc*/, char** /*argv*/)
 
 	glGenBuffers(1, &posVbo);
 	glBindBuffer(GL_ARRAY_BUFFER, posVbo);
-	GLuint loc = glGetAttribLocation(program.GetID(), "pos");
-	glEnableVertexAttribArray(loc);
-	glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
 	glGenBuffers(1, &normVbo);
 	glBindBuffer(GL_ARRAY_BUFFER, normVbo);
-	loc = glGetAttribLocation(program.GetID(), "normal");
-	glEnableVertexAttribArray(loc);
-	glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
 	glGenBuffers(1, &tanVbo);
 	glBindBuffer(GL_ARRAY_BUFFER, tanVbo);
-	loc = glGetAttribLocation(program.GetID(), "tangent");
-	glEnableVertexAttribArray(loc);
-	glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(2);
+	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
 	// floor VAO
 	glGenVertexArrays(1, &planeVao);
 	glBindVertexArray(planeVao);
 	glGenBuffers(1, &planeVbo);
 	glBindBuffer(GL_ARRAY_BUFFER, planeVbo);
-	loc = glGetAttribLocation(planeProgram.GetID(), "pos");
-	glEnableVertexAttribArray(loc);
-	glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	GLuint planeLoc = glGetAttribLocation(planeProgram.GetID(), "pos");
+	glEnableVertexAttribArray(planeLoc);
+	glVertexAttribPointer(planeLoc, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
 	// light-point VAO
 	glGenVertexArrays(1, &lightPointVao);
@@ -466,9 +549,52 @@ int main(int /*argc*/, char** /*argv*/)
 	glBindBuffer(GL_ARRAY_BUFFER, lightPointVbo);
 	cy::Vec3f origin(0,0,0);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(cy::Vec3f), &origin, GL_STATIC_DRAW);
-	loc = glGetAttribLocation(planeProgram.GetID(), "pos");
-	glEnableVertexAttribArray(loc);
-	glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	GLuint lightLoc = glGetAttribLocation(planeProgram.GetID(), "pos");
+	glEnableVertexAttribArray(lightLoc);
+	glVertexAttribPointer(lightLoc, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+	// ── DOM FBOs ──
+	glGenFramebuffers(1, &domDepthFBO);
+	glBindFramebuffer(GL_FRAMEBUFFER, domDepthFBO);
+	glGenTextures(1, &domDepthTex);
+	glBindTexture(GL_TEXTURE_2D, domDepthTex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, domResolution, domResolution, 0, GL_RED, GL_FLOAT, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, domDepthTex, 0);
+	glGenRenderbuffers(1, &domDepthRB);
+	glBindRenderbuffer(GL_RENDERBUFFER, domDepthRB);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, domResolution, domResolution);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, domDepthRB);
+
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+		fprintf(stderr, "DOM depth FBO incomplete: 0x%x\n", glCheckFramebufferStatus(GL_FRAMEBUFFER));
+	else
+		printf("DOM depth FBO: OK\n");
+
+	glGenFramebuffers(1, &domOpacityFBO);
+	glBindFramebuffer(GL_FRAMEBUFFER, domOpacityFBO);
+	glGenTextures(1, &domOpacityTex);
+	glBindTexture(GL_TEXTURE_2D, domOpacityTex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, domResolution, domResolution, 0, GL_RGBA, GL_FLOAT, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, domOpacityTex, 0);
+
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+		fprintf(stderr, "DOM opacity FBO incomplete: 0x%x\n", glCheckFramebufferStatus(GL_FRAMEBUFFER));
+	else
+		printf("DOM opacity FBO: OK\n");
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	if (!domDepthProg.BuildFiles("dom_depth.vert", "dom_depth.frag"))
+		fprintf(stderr, "DOM depth shader failed\n");
+	if (!domOpacityProg.BuildFiles("dom_opacity.vert", "dom_opacity.frag"))
+		fprintf(stderr, "DOM opacity shader failed\n");
 
 	// shadow FBO
 	renderBuffer.Initialize(true, 4096, 4096);

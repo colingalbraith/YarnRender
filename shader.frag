@@ -2,12 +2,21 @@
 
 in vec3 vNormal, vPosition, vTangent;
 in vec4 ShadowCoord;
+in float vDomDepth;
+in vec4  vDomClip;
 
 uniform vec3 lightPos;
 uniform float lightIntensity;
 uniform sampler2DShadow shadowMap;
 uniform int shadingModel; // 0=Blinn-Phong, 1=Kajiya-Kay, 2=Marschner
 uniform vec3 baseColor;
+
+// ── Deep Opacity Maps ──
+uniform int       domEnabled;
+uniform int       domDebug;      // 0=off, 1=show depth, 2=show opacity, 3=show visibility
+uniform sampler2D domDepthMap;   // unit 1: linear z0
+uniform sampler2D domOpacityMap; // unit 2: accumulated opacity per layer
+uniform vec3      domLayers;     // d1, d2, d3
 
 // ── Blinn-Phong uniforms ──
 uniform float bp_ambient;
@@ -23,6 +32,7 @@ uniform float kk_specPrimary;
 uniform float kk_specSecondary;
 uniform float kk_shinyPrimary;
 uniform float kk_shinySecondary;
+uniform float kk_normalInfluence;
 
 // ── Marschner uniforms ──
 uniform float m_ambient;
@@ -31,6 +41,7 @@ uniform float m_betaR;       // roughness
 uniform float m_R_strength;  // R lobe
 uniform float m_TT_strength; // TT lobe
 uniform float m_TRT_strength;// TRT lobe
+uniform float m_normalInfluence;
 
 out vec4 fragColor;
 
@@ -77,7 +88,10 @@ vec3 kajiyaKay(vec3 T, vec3 N, vec3 L, vec3 V, vec3 bc, out vec3 ambient)
 
     vec3 spec = vec3(kk_specPrimary) * primary + kk_specSecondary * bc * secondary;
 
-    return ambient + (diff + spec) * lightIntensity;
+    // Normal modulation: use surface normal to differentiate fibers
+    float normalShade = mix(1.0, max(dot(N, L), 0.0), kk_normalInfluence);
+
+    return ambient + (diff + spec) * normalShade * lightIntensity;
 }
 
 // ── 3. Marschner (simplified three-lobe) ──
@@ -125,8 +139,11 @@ vec3 marschner(vec3 T, vec3 N, vec3 L, vec3 V, vec3 bc, out vec3 ambient)
     float NTRT = pow(max(cos(phi * 0.5 - 0.3), 0.0), 6.0);
     vec3  TRT  = m_TRT_strength * bc * MTRT * NTRT;
 
+    // Normal modulation: use surface normal to differentiate fibers
+    float normalShade = mix(1.0, max(dot(N, L), 0.0), m_normalInfluence);
+
     float cosWeight = max(cosThetaI, 0.0);
-    return ambient + (R + TT + TRT) * cosWeight * lightIntensity;
+    return ambient + (R + TT + TRT) * cosWeight * normalShade * lightIntensity;
 }
 
 // ── main ──
@@ -149,19 +166,76 @@ void main()
 
     vec3  projCoords = ShadowCoord.xyz / ShadowCoord.w;
     float visibility = 1.0;
-    if (projCoords.x >= 0.0 && projCoords.x <= 1.0 &&
-        projCoords.y >= 0.0 && projCoords.y <= 1.0)
-    {
-        float bias = max(0.008 * (1.0 - dot(N, L)), 0.001);
-        projCoords.z -= bias;
-        visibility = texture(shadowMap, projCoords);
-    }
-    else { visibility = 0.0; }
 
-    visibility = max(visibility, 0.3);
+    if (domEnabled > 0) {
+        // ── Deep Opacity Maps path ──
+        // Convert light clip-space to [0,1] UV for DOM texture lookup
+        vec3 domNDC = vDomClip.xyz / vDomClip.w;
+        vec2 domUV  = domNDC.xy * 0.5 + 0.5;
+
+        if (domUV.x >= 0.0 && domUV.x <= 1.0 &&
+            domUV.y >= 0.0 && domUV.y <= 1.0)
+        {
+            float z0    = texture(domDepthMap, domUV).r;
+            float delta = vDomDepth - z0;
+
+            if (delta < 0.0) {
+                visibility = 1.0; // in front of hair volume
+            } else {
+                vec3 layers = texture(domOpacityMap, domUV).rgb;
+                float opacity;
+                if (delta <= domLayers.x) {
+                    opacity = mix(0.0, layers.r, delta / max(domLayers.x, 0.0001));
+                } else if (delta <= domLayers.y) {
+                    float t = (delta - domLayers.x) / max(domLayers.y - domLayers.x, 0.0001);
+                    opacity = mix(layers.r, layers.g, t);
+                } else if (delta <= domLayers.z) {
+                    float t = (delta - domLayers.y) / max(domLayers.z - domLayers.y, 0.0001);
+                    opacity = mix(layers.g, layers.b, t);
+                } else {
+                    opacity = layers.b;
+                }
+                visibility = exp(-opacity);
+            }
+        }
+        visibility = max(visibility, 0.05);
+    } else {
+        // ── Classic shadow map path ──
+        if (projCoords.x >= 0.0 && projCoords.x <= 1.0 &&
+            projCoords.y >= 0.0 && projCoords.y <= 1.0)
+        {
+            float bias = max(0.008 * (1.0 - dot(N, L)), 0.001);
+            projCoords.z -= bias;
+            visibility = texture(shadowMap, projCoords);
+        }
+        else { visibility = 0.0; }
+        visibility = max(visibility, 0.3);
+    }
 
     vec3 direct = color - ambient;
     color = ambient + direct * visibility;
+
+    // DOM debug visualization
+    if (domEnabled > 0 && domDebug > 0) {
+        vec3 domNDC = vDomClip.xyz / vDomClip.w;
+        vec2 domUV  = domNDC.xy * 0.5 + 0.5;
+        if (domDebug == 1) {
+            // Show DOM depth texture (normalized)
+            float z = texture(domDepthMap, domUV).r;
+            float viz = z / 100.0; // scale to visible range
+            fragColor = vec4(viz, viz, viz, 1.0);
+            return;
+        } else if (domDebug == 2) {
+            // Show DOM opacity texture (RGB = layer opacities)
+            vec3 op = texture(domOpacityMap, domUV).rgb;
+            fragColor = vec4(op, 1.0);
+            return;
+        } else if (domDebug == 3) {
+            // Show visibility as grayscale
+            fragColor = vec4(vec3(visibility), 1.0);
+            return;
+        }
+    }
 
     fragColor = vec4(color, 1.0);
 }
