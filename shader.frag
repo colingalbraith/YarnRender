@@ -1,6 +1,8 @@
 #version 330 core
 
 in vec3 vNormal, vPosition, vTangent, vFiberColor;
+in float vFiberType;
+in float vTubeU, vTubeV;
 in vec4 ShadowCoord;
 in float vDomDepth;
 in vec4  vDomClip;
@@ -46,14 +48,28 @@ uniform float m_TT_strength; // TT lobe
 uniform float m_TRT_strength;// TRT lobe
 uniform float m_normalInfluence;
 
+// ── Yarn shading uniforms ──
+uniform float y_ambient;
+uniform float y_diffuse;
+uniform float y_specular;
+uniform float y_fuzz;
+uniform float y_wrap;
+uniform float y_tangentBlend;
+uniform float y_shininess;
+uniform float y_fuzzWidth;
+
 // ── Fiber surface effects ──
+uniform int   fiberStripes;
+uniform float fiberTwistRate;
+uniform float fiberGrooveDepth;
 uniform float noiseStrength;
 uniform float noiseScale;
 uniform float rimStrength;
 uniform float rimPower;
 uniform float sssStrength;
 uniform float sssPower;
-uniform float fiberAlpha;
+uniform float plyAlpha;
+uniform float flyawayAlpha;
 
 out vec4 fragColor;
 
@@ -94,20 +110,11 @@ float valueNoise(vec3 p)
                        dot(hash33(i + vec3(1,1,1)), f - vec3(1,1,1)), f.x), f.y), f.z);
 }
 
-// Multi-octave FBM with anisotropic stretching along tangent
+// 2-octave FBM with anisotropic stretching along tangent
 float fiberFBM(vec3 pos, vec3 T)
 {
-    // Stretch coordinates along tangent for fiber grain
     vec3 p = pos - T * dot(pos, T) * 0.7;
-    float val = 0.0;
-    float amp = 0.5;
-    float freq = 1.0;
-    for (int i = 0; i < 4; i++) {
-        val += amp * valueNoise(p * freq);
-        freq *= 2.2;
-        amp *= 0.45;
-    }
-    return val;
+    return 0.55 * valueNoise(p) + 0.3 * valueNoise(p * 2.2);
 }
 
 // ── 1. Blinn-Phong with wrap diffuse ──
@@ -204,6 +211,50 @@ vec3 marschner(vec3 T, vec3 N, vec3 L, vec3 V, vec3 bc, out vec3 ambient)
     return ambient + (R + TT + TRT) * cosWeight * normalShade * lightIntensity;
 }
 
+// ── 4. Yarn shader (hybrid tangent-normal model for twisted plied yarn) ──
+//
+// Designed for yarn rather than hair: combines tangent-based anisotropy
+// with normal-based cross-section shading in a single unified model.
+// Key differences from hair models:
+//   - Wrap diffuse blends tangent and normal contributions (yarn is fuzzier)
+//   - "Fuzz" lobe: broad scattered highlight from inter-fiber bounces
+//   - Cross-section gradient: smooth darkening toward yarn interior
+//   - All parameters tuned for the matte, soft look of twisted fiber bundles
+
+vec3 yarnShader(vec3 T, vec3 N, vec3 L, vec3 V, vec3 bc, out vec3 ambient)
+{
+    ambient = y_ambient * bc;
+
+    // ── Hybrid diffuse: blend tangent-based and normal-based ──
+    // Tangent diffuse (Kajiya-Kay style)
+    float TdotL = dot(T, L);
+    float sinTL = sqrt(max(1.0 - TdotL * TdotL, 0.0));
+    // Normal diffuse with wrap
+    float NdotL = (dot(N, L) + y_wrap) / (1.0 + y_wrap);
+    NdotL = max(NdotL, 0.0);
+    // Blend: high tangentBlend = more anisotropic, low = more isotropic
+    float diff = mix(NdotL, sinTL, y_tangentBlend);
+    vec3 diffuse = y_diffuse * bc * diff;
+
+    // ── Primary specular: anisotropic along fiber ──
+    float TdotV = dot(T, V);
+    float sinTV = sqrt(max(1.0 - TdotV * TdotV, 0.0));
+    float cosHalf = TdotL * TdotV + sinTL * sinTV;
+    vec3 spec = vec3(y_specular) * pow(max(cosHalf, 0.0), y_shininess);
+
+    // ── Fuzz lobe: broad scattered highlight from inter-fiber bouncing ──
+    // Uses the normal-space half vector for a wide, soft highlight
+    // that wraps around the yarn cross-section
+    vec3 H = normalize(L + V);
+    float NdotH = max(dot(N, H), 0.0);
+    vec3 fuzz = y_fuzz * bc * pow(NdotH, y_fuzzWidth);
+
+    // ── Cross-section shading: darken fibers facing away ──
+    float crossSection = mix(0.6, 1.0, max(dot(N, L), 0.0));
+
+    return ambient + (diffuse + spec + fuzz) * crossSection * lightIntensity;
+}
+
 // ── main ──
 
 void main()
@@ -215,21 +266,52 @@ void main()
 
     if (dot(N, V) < 0.0) N = -N;
 
-    // Procedural fiber texture
+    // ── Twisted fiber stripe pattern with per-fiber variation ──
+    float stripeShade = 1.0;
+    vec3 stripeTint = vec3(1.0);
+    if (fiberStripes > 0) {
+        float twistedV = vTubeV * float(fiberStripes) + vTubeU * fiberTwistRate;
+
+        // Identify which stripe/fiber we're in
+        float stripeIdx = floor(twistedV);
+        float withinStripe = fract(twistedV);
+
+        // Per-stripe hash for variation
+        float h1 = fract(sin(stripeIdx * 127.1) * 43758.5);
+        float h2 = fract(sin(stripeIdx * 269.5) * 18397.3);
+        float h3 = fract(sin(stripeIdx * 419.2) * 29517.7);
+
+        // Width wobble: shift the stripe center slightly
+        float wobble = (h1 - 0.5) * 0.15;
+        float adjusted = withinStripe + wobble;
+
+        // Groove shape with per-fiber width variation
+        float width = 0.85 + h2 * 0.3; // fiber width varies 0.85-1.15
+        float stripe = sin((adjusted - 0.5) * PI * width);
+        stripeShade = 1.0 - fiberGrooveDepth * (0.5 - 0.5 * stripe);
+
+        // Per-fiber color/brightness variation
+        float brightness = 0.88 + h3 * 0.24; // 0.88 - 1.12
+        stripeTint = vec3(
+            brightness * (0.95 + 0.1 * fract(h1 * 7.3)),
+            brightness * (0.95 + 0.1 * fract(h2 * 5.7)),
+            brightness * (0.95 + 0.1 * fract(h3 * 3.1))
+        );
+    }
+
+    // Procedural micro-noise on top of stripes
     float fiberNoise = 0.0;
     if (noiseStrength > 0.0) {
-        // Normal perturbation
         vec3 noiseVal = vec3(valueNoise(vPosition * noiseScale),
                              valueNoise(vPosition * noiseScale + vec3(31.7)),
                              valueNoise(vPosition * noiseScale + vec3(67.3)));
         N = normalize(N + noiseStrength * 2.0 * noiseVal);
-
-        // Anisotropic fiber grain for color modulation
         fiberNoise = fiberFBM(vPosition * noiseScale * 0.5, T);
     }
 
-    // Per-fiber color variation + fiber grain texture
+    // Per-fiber color variation + stripe shading + micro-noise
     vec3 bc = baseColor * mix(vec3(1.0), vFiberColor, colorVariation);
+    bc *= stripeShade * stripeTint;
     bc *= 1.0 + noiseStrength * 3.0 * fiberNoise;
 
     vec3 ambient;
@@ -237,6 +319,7 @@ void main()
 
     if      (shadingModel == 1) color = kajiyaKay(T, N, L, V, bc, ambient);
     else if (shadingModel == 2) color = marschner(T, N, L, V, bc, ambient);
+    else if (shadingModel == 3) color = yarnShader(T, N, L, V, bc, ambient);
     else                        color = blinnPhong(N, L, V, bc, ambient);
 
     // Rim / Fresnel edge glow for fuzzy appearance
@@ -331,10 +414,10 @@ void main()
         color = pow(color, vec3(1.0/2.2));
     }
 
-    // Alpha: fiber base alpha + Fresnel edge fade for softness
-    float alpha = fiberAlpha;
+    // Alpha: separate ply vs flyaway opacity + Fresnel edge fade
+    float baseAlpha = mix(plyAlpha, flyawayAlpha, vFiberType);
     float edgeFade = pow(1.0 - max(dot(normalize(vNormal), V), 0.0), 2.0);
-    alpha = mix(alpha, alpha * 0.3, edgeFade * (1.0 - fiberAlpha));
+    float alpha = mix(baseAlpha, baseAlpha * 0.3, edgeFade * (1.0 - baseAlpha));
 
     fragColor = vec4(color, alpha);
 }

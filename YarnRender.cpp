@@ -22,13 +22,14 @@
 static void rebuildGeometry()
 {
 	std::vector<cy::Vec3f> pos, nrm, tan, col;
+	std::vector<float> ftype, tU, tV;
 
 	YarnParams p = { fiberCount, flyawayCount, yarnA, yarnH, yarnD, yarnOmega, yarnRadius };
 
 	if (currentGeom == 1)
-		buildFiberTubes(p, pos, nrm, tan, col);
+		buildFiberTubes(p, pos, nrm, tan, col, ftype, tU, tV);
 	else
-		buildYarnTubes(p, pos, nrm, tan, col);
+		buildYarnTubes(p, pos, nrm, tan, col, ftype, tU, tV);
 
 	VertexCount = (int)pos.size();
 
@@ -48,6 +49,12 @@ static void rebuildGeometry()
 	glBufferData(GL_ARRAY_BUFFER, tan.size()*sizeof(cy::Vec3f), tan.data(), GL_STATIC_DRAW);
 	glBindBuffer(GL_ARRAY_BUFFER, colVbo);
 	glBufferData(GL_ARRAY_BUFFER, col.size()*sizeof(cy::Vec3f), col.data(), GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, ftypeVbo);
+	glBufferData(GL_ARRAY_BUFFER, ftype.size()*sizeof(float), ftype.data(), GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, tubeUVbo);
+	glBufferData(GL_ARRAY_BUFFER, tU.size()*sizeof(float), tU.data(), GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, tubeVVbo);
+	glBufferData(GL_ARRAY_BUFFER, tV.size()*sizeof(float), tV.data(), GL_STATIC_DRAW);
 
 	needRebuild = false;
 }
@@ -172,9 +179,13 @@ static void myDisplay()
 	program.SetUniform("noiseScale", noiseScale);
 	program.SetUniform("rimStrength", rimStrength);
 	program.SetUniform("rimPower", rimPower);
+	program.SetUniform("fiberStripes", fiberStripes);
+	program.SetUniform("fiberTwistRate", fiberTwistRate);
+	program.SetUniform("fiberGrooveDepth", fiberGrooveDepth);
 	program.SetUniform("sssStrength", sssStrength);
 	program.SetUniform("sssPower", sssPower);
-	program.SetUniform("fiberAlpha", fiberAlpha);
+	program.SetUniform("plyAlpha", plyAlpha);
+	program.SetUniform("flyawayAlpha", flyawayAlpha);
 
 	// Blinn-Phong params
 	program.SetUniform("bp_ambient",   bp_ambient);
@@ -198,6 +209,15 @@ static void myDisplay()
 	program.SetUniform("m_TT_strength",  m_TT_strength);
 	program.SetUniform("m_TRT_strength", m_TRT_strength);
 	program.SetUniform("m_normalInfluence", m_normalInfluence);
+	// Yarn shader params
+	program.SetUniform("y_ambient",      y_ambient);
+	program.SetUniform("y_diffuse",      y_diffuse);
+	program.SetUniform("y_specular",     y_specular);
+	program.SetUniform("y_fuzz",         y_fuzz);
+	program.SetUniform("y_wrap",         y_wrap);
+	program.SetUniform("y_tangentBlend", y_tangentBlend);
+	program.SetUniform("y_shininess",    y_shininess);
+	program.SetUniform("y_fuzzWidth",    y_fuzzWidth);
 
 	program.SetUniformMatrix4("shadowMatrix", (sMat * model).cell);
 	program.SetUniformMatrix4("domLightVM", lightVM.cell);
@@ -222,7 +242,7 @@ static void myDisplay()
 		program.SetUniform("domLayers", D/6.f, D/2.f, D);
 	}
 
-	if (fiberAlpha < 0.99f) {
+	if (plyAlpha < 0.99f || flyawayAlpha < 0.99f) {
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	}
@@ -230,7 +250,7 @@ static void myDisplay()
 	glBindVertexArray(vao);
 	glDrawArrays(GL_TRIANGLES, 0, VertexCount);
 
-	if (fiberAlpha < 0.99f) glDisable(GL_BLEND);
+	if (plyAlpha < 0.99f || flyawayAlpha < 0.99f) glDisable(GL_BLEND);
 	if (showWireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 	// floor
@@ -326,6 +346,7 @@ static void drawImGuiPanel()
 		ImGui::RadioButton("Blinn-Phong (1)", &currentShading, 0);
 		ImGui::RadioButton("Kajiya-Kay (2)", &currentShading, 1);
 		ImGui::RadioButton("Marschner (3)", &currentShading, 2);
+		ImGui::RadioButton("Yarn (6)", &currentShading, 3);
 	}
 
 	// ── Geometry ──
@@ -340,7 +361,7 @@ static void drawImGuiPanel()
 		if (fiberCount != prevFibers && currentGeom == 1) needRebuild = true;
 
 		int prevFlyaway = flyawayCount;
-		ImGui::SliderInt("Flyaway count", &flyawayCount, 0, 24);
+		ImGui::SliderInt("Flyaway count", &flyawayCount, 0, 128);
 		if (flyawayCount != prevFlyaway && currentGeom == 1) needRebuild = true;
 
 		ImGui::Checkbox("Wireframe", &showWireframe);
@@ -403,6 +424,19 @@ static void drawImGuiPanel()
 		if (ImGui::Button("Reset M")) { m_ambient=0.18f; m_alphaR=-0.07f; m_betaR=0.12f; m_R_strength=0.40f; m_TT_strength=1.0f; m_TRT_strength=0.70f; m_normalInfluence=0.35f; }
 	}
 
+	// ── Yarn shader params ──
+	if (ImGui::CollapsingHeader("Yarn Shader Params")) {
+		ImGui::SliderFloat("Y Ambient",       &y_ambient,      0.0f, 1.0f);
+		ImGui::SliderFloat("Y Diffuse",       &y_diffuse,      0.0f, 2.0f);
+		ImGui::SliderFloat("Y Specular",      &y_specular,     0.0f, 1.0f);
+		ImGui::SliderFloat("Y Fuzz",          &y_fuzz,         0.0f, 1.0f);
+		ImGui::SliderFloat("Y Wrap",          &y_wrap,         0.0f, 1.0f);
+		ImGui::SliderFloat("Y Tangent blend", &y_tangentBlend, 0.0f, 1.0f);
+		ImGui::SliderFloat("Y Shininess",     &y_shininess,    1.0f, 128.0f);
+		ImGui::SliderFloat("Y Fuzz width",    &y_fuzzWidth,    1.0f, 32.0f);
+		if (ImGui::Button("Reset Yarn")) { y_ambient=0.20f; y_diffuse=0.75f; y_specular=0.20f; y_fuzz=0.35f; y_wrap=0.5f; y_tangentBlend=0.6f; y_shininess=24.f; y_fuzzWidth=8.f; }
+	}
+
 	// ── Rendering ──
 	if (ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Checkbox("Tone mapping + Gamma", &gammaEnabled);
@@ -415,13 +449,18 @@ static void drawImGuiPanel()
 		}
 		ImGui::Checkbox("Floor checker", &checkerEnabled);
 		ImGui::Separator();
+		ImGui::SliderInt("Fibers per ply", &fiberStripes, 0, 32);
+		ImGui::SliderFloat("Fiber twist", &fiberTwistRate, 0.0f, 200.0f);
+		ImGui::SliderFloat("Fiber groove depth", &fiberGrooveDepth, 0.0f, 1.0f);
+		ImGui::Separator();
 		ImGui::SliderFloat("Noise strength", &noiseStrength, 0.0f, 0.3f, "%.3f");
 		ImGui::SliderFloat("Noise scale", &noiseScale, 5.0f, 100.0f);
 		ImGui::SliderFloat("Rim strength", &rimStrength, 0.0f, 1.0f);
 		ImGui::SliderFloat("Rim power", &rimPower, 1.0f, 8.0f);
 		ImGui::SliderFloat("SSS strength", &sssStrength, 0.0f, 1.0f);
 		ImGui::SliderFloat("SSS power", &sssPower, 1.0f, 8.0f);
-		ImGui::SliderFloat("Fiber alpha", &fiberAlpha, 0.3f, 1.0f);
+		ImGui::SliderFloat("Ply alpha", &plyAlpha, 0.3f, 1.0f);
+		ImGui::SliderFloat("Flyaway alpha", &flyawayAlpha, 0.1f, 1.0f);
 	}
 
 	// ── Deep Opacity Maps ──
@@ -466,6 +505,7 @@ static void keyCallback(GLFWwindow* win, int key, int sc, int action, int mod)
 	if (key == GLFW_KEY_1 && action == GLFW_PRESS) currentShading = 0;
 	if (key == GLFW_KEY_2 && action == GLFW_PRESS) currentShading = 1;
 	if (key == GLFW_KEY_3 && action == GLFW_PRESS) currentShading = 2;
+	if (key == GLFW_KEY_6 && action == GLFW_PRESS) currentShading = 3;
 
 	if (key == GLFW_KEY_4 && action == GLFW_PRESS) { currentGeom = 0; needRebuild = true; }
 	if (key == GLFW_KEY_5 && action == GLFW_PRESS) { currentGeom = 1; needRebuild = true; }
@@ -595,6 +635,21 @@ int main(int /*argc*/, char** /*argv*/)
 	glBindBuffer(GL_ARRAY_BUFFER, colVbo);
 	glEnableVertexAttribArray(3);
 	glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+	glGenBuffers(1, &ftypeVbo);
+	glBindBuffer(GL_ARRAY_BUFFER, ftypeVbo);
+	glEnableVertexAttribArray(4);
+	glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, 0, 0);
+
+	glGenBuffers(1, &tubeUVbo);
+	glBindBuffer(GL_ARRAY_BUFFER, tubeUVbo);
+	glEnableVertexAttribArray(5);
+	glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, 0, 0);
+
+	glGenBuffers(1, &tubeVVbo);
+	glBindBuffer(GL_ARRAY_BUFFER, tubeVVbo);
+	glEnableVertexAttribArray(6);
+	glVertexAttribPointer(6, 1, GL_FLOAT, GL_FALSE, 0, 0);
 
 	// floor VAO
 	glGenVertexArrays(1, &planeVao);

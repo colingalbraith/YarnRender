@@ -15,16 +15,16 @@ bool  showWireframe = false;
 // ── Blinn-Phong parameters ──
 float bp_ambient   = 0.25f;
 float bp_diffuse   = 0.70f;
-float bp_specular  = 0.70f;
-float bp_shininess = 64.0f;
+float bp_specular  = 0.30f;
+float bp_shininess = 32.0f;
 float bp_wrap      = 0.45f;
 
 // ── Kajiya-Kay parameters ──
 float kk_ambient       = 0.22f;
 float kk_diffuse       = 0.60f;
-float kk_specPrimary   = 0.60f;
-float kk_specSecondary = 0.35f;
-float kk_shinyPrimary  = 80.0f;
+float kk_specPrimary   = 0.25f;
+float kk_specSecondary = 0.15f;
+float kk_shinyPrimary  = 40.0f;
 float kk_shinySecondary = 18.0f;
 float kk_normalInfluence = 0.35f;
 
@@ -32,10 +32,20 @@ float kk_normalInfluence = 0.35f;
 float m_ambient      = 0.18f;
 float m_alphaR       = -0.07f;
 float m_betaR        = 0.12f;
-float m_R_strength   = 0.40f;
+float m_R_strength   = 0.20f;
 float m_TT_strength  = 1.00f;
 float m_TRT_strength = 0.70f;
 float m_normalInfluence = 0.35f;
+
+// ── Yarn shading parameters ──
+float y_ambient      = 0.20f;
+float y_diffuse      = 0.75f;
+float y_specular     = 0.20f;
+float y_fuzz         = 0.35f;
+float y_wrap         = 0.5f;
+float y_tangentBlend = 0.6f;
+float y_shininess    = 24.0f;
+float y_fuzzWidth    = 8.0f;
 
 // ── Visual enhancements ──
 float colorVariation = 0.5f;
@@ -47,12 +57,16 @@ float bgColorBot[3] = { 0.05f, 0.05f, 0.07f };
 bool  checkerEnabled = true;
 float noiseStrength = 0.15f;
 float noiseScale = 60.0f;
-float rimStrength = 0.3f;
+float rimStrength = 0.15f;
 float rimPower = 3.0f;
-float sssStrength = 0.4f;
+int   fiberStripes = 12;
+float fiberTwistRate = 80.0f;
+float fiberGrooveDepth = 0.4f;
+float sssStrength = 0.2f;
 float sssPower = 3.0f;
-float fiberAlpha = 0.85f;
-GLuint colVbo = 0;
+float plyAlpha = 1.0f;
+float flyawayAlpha = 0.6f;
+GLuint colVbo = 0, ftypeVbo = 0, tubeUVbo = 0, tubeVVbo = 0;
 GLuint bgVao = 0;
 cy::GLSLProgram bgProgram;
 

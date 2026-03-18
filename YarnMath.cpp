@@ -59,6 +59,8 @@ void generateTube(
 	std::vector<cy::Vec3f>& oP,
 	std::vector<cy::Vec3f>& oN,
 	std::vector<cy::Vec3f>& oT,
+	std::vector<float>& oU,
+	std::vector<float>& oV,
 	float radiusVariation,
 	unsigned int seed)
 {
@@ -99,10 +101,16 @@ void generateTube(
 		B[i] = tans[i].Cross(N[i]).GetNormalized();
 	}
 
+	float invN = 1.f / (float)(n - 1);
+
 	for (int i = 0; i < n - 1; i++) {
+		float u0 = (float)i * invN;
+		float u1 = (float)(i+1) * invN;
 		for (int j = 0; j < sides; j++) {
 			float a0 = 2.f * PI * j / sides;
 			float a1 = 2.f * PI * ((j+1) % sides) / sides;
+			float v0 = (float)j / (float)sides;
+			float v1 = (float)((j+1) % sides) / (float)sides;
 
 			auto ring = [&](int ri, float ang, cy::Vec3f& p, cy::Vec3f& nn, cy::Vec3f& tt){
 				nn = N[ri]*cosf(ang) + B[ri]*sinf(ang);
@@ -115,13 +123,13 @@ void generateTube(
 			cy::Vec3f p10,n10,t10; ring(i+1, a0, p10,n10,t10);
 			cy::Vec3f p11,n11,t11; ring(i+1, a1, p11,n11,t11);
 
-			oP.push_back(p00); oN.push_back(n00); oT.push_back(t00);
-			oP.push_back(p10); oN.push_back(n10); oT.push_back(t10);
-			oP.push_back(p01); oN.push_back(n01); oT.push_back(t01);
+			oP.push_back(p00); oN.push_back(n00); oT.push_back(t00); oU.push_back(u0); oV.push_back(v0);
+			oP.push_back(p10); oN.push_back(n10); oT.push_back(t10); oU.push_back(u1); oV.push_back(v0);
+			oP.push_back(p01); oN.push_back(n01); oT.push_back(t01); oU.push_back(u0); oV.push_back(v1);
 
-			oP.push_back(p01); oN.push_back(n01); oT.push_back(t01);
-			oP.push_back(p10); oN.push_back(n10); oT.push_back(t10);
-			oP.push_back(p11); oN.push_back(n11); oT.push_back(t11);
+			oP.push_back(p01); oN.push_back(n01); oT.push_back(t01); oU.push_back(u0); oV.push_back(v1);
+			oP.push_back(p10); oN.push_back(n10); oT.push_back(t10); oU.push_back(u1); oV.push_back(v0);
+			oP.push_back(p11); oN.push_back(n11); oT.push_back(t11); oU.push_back(u1); oV.push_back(v1);
 		}
 	}
 }

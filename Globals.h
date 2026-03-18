@@ -43,6 +43,16 @@ extern float m_TT_strength;
 extern float m_TRT_strength;
 extern float m_normalInfluence;
 
+// ── Yarn shading parameters ──
+extern float y_ambient;
+extern float y_diffuse;
+extern float y_specular;
+extern float y_fuzz;
+extern float y_wrap;
+extern float y_tangentBlend;
+extern float y_shininess;
+extern float y_fuzzWidth;
+
 // ── Visual enhancements ──
 extern float colorVariation;
 extern float exposure;
@@ -55,10 +65,14 @@ extern float noiseStrength;
 extern float noiseScale;
 extern float rimStrength;
 extern float rimPower;
+extern int   fiberStripes;
+extern float fiberTwistRate;
+extern float fiberGrooveDepth;
 extern float sssStrength;
 extern float sssPower;
-extern float fiberAlpha;
-extern GLuint colVbo;
+extern float plyAlpha;
+extern float flyawayAlpha;
+extern GLuint colVbo, ftypeVbo, tubeUVbo, tubeVVbo;
 extern GLuint bgVao;
 extern cy::GLSLProgram bgProgram;
 
