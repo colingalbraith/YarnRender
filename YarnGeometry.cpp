@@ -61,7 +61,7 @@ void buildFiberTubes(const YarnParams& p,
 	float outerR     = p.yarnRadius;
 	float outerTubeR = std::max(0.04f, 0.75f * PI * outerR / nOuter);
 	float innerTubeR = std::max(0.04f, 0.75f * PI * innerR / nInner);
-	int   nFlyaway   = std::max(3, nOuter / 4);
+	int   nFlyaway   = p.flyawayCount;
 
 	PlyLayer layers[] = {
 		{ 0.0f,   coreR,      1,      0.f,   0.f,          10 },
@@ -98,7 +98,8 @@ void buildFiberTubes(const YarnParams& p,
 					else { pp = fiberCurve(t+eps, p.yarnA, p.yarnH, p.yarnD, effR, layerOmega, effPhi); pm = fiberCurve(t-eps, p.yarnA, p.yarnH, p.yarnD, effR, layerOmega, effPhi); }
 					tans[i] = (pp - pm).GetNormalized();
 				}
-					generateTube(curve, tans, L.tubeR, L.sides, pos, nrm, tan);
+					unsigned seed = (unsigned)(row*997 + li*131 + fib*37);
+				generateTube(curve, tans, L.tubeR, L.sides, pos, nrm, tan, 0.25f, seed);
 				cy::Vec3f fc(0.8f + 0.4f * fibHash(row,li,fib,10),
 				             0.8f + 0.4f * fibHash(row,li,fib,11),
 				             0.8f + 0.4f * fibHash(row,li,fib,12));
@@ -130,7 +131,8 @@ void buildFiberTubes(const YarnParams& p,
 				cy::Vec3f pm = fiberCurve(t-eps, p.yarnA, p.yarnH, p.yarnD, flyRm, flyOmega, basePhi);
 				tans[i] = (pp - pm).GetNormalized();
 			}
-			generateTube(curve, tans, flyTubeR, 4, pos, nrm, tan);
+			unsigned flySeed = (unsigned)(row*1999 + fl*71);
+			generateTube(curve, tans, flyTubeR, 4, pos, nrm, tan, 0.35f, flySeed);
 			cy::Vec3f fc(0.7f + 0.6f * fibHash(row,99,fl,10),
 			             0.7f + 0.6f * fibHash(row,99,fl,11),
 			             0.7f + 0.6f * fibHash(row,99,fl,12));

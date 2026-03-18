@@ -17,4 +17,6 @@ void generateTube(
 	float radius, int sides,
 	std::vector<cy::Vec3f>& oP,
 	std::vector<cy::Vec3f>& oN,
-	std::vector<cy::Vec3f>& oT);
+	std::vector<cy::Vec3f>& oT,
+	float radiusVariation = 0.f,
+	unsigned int seed = 0);

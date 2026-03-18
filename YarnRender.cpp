@@ -23,7 +23,7 @@ static void rebuildGeometry()
 {
 	std::vector<cy::Vec3f> pos, nrm, tan, col;
 
-	YarnParams p = { fiberCount, yarnA, yarnH, yarnD, yarnOmega, yarnRadius };
+	YarnParams p = { fiberCount, flyawayCount, yarnA, yarnH, yarnD, yarnOmega, yarnRadius };
 
 	if (currentGeom == 1)
 		buildFiberTubes(p, pos, nrm, tan, col);
@@ -168,6 +168,13 @@ static void myDisplay()
 	program.SetUniform("colorVariation", colorVariation);
 	program.SetUniform("exposure", exposure);
 	program.SetUniform("gammaEnabled", gammaEnabled ? 1 : 0);
+	program.SetUniform("noiseStrength", noiseStrength);
+	program.SetUniform("noiseScale", noiseScale);
+	program.SetUniform("rimStrength", rimStrength);
+	program.SetUniform("rimPower", rimPower);
+	program.SetUniform("sssStrength", sssStrength);
+	program.SetUniform("sssPower", sssPower);
+	program.SetUniform("fiberAlpha", fiberAlpha);
 
 	// Blinn-Phong params
 	program.SetUniform("bp_ambient",   bp_ambient);
@@ -215,9 +222,15 @@ static void myDisplay()
 		program.SetUniform("domLayers", D/6.f, D/2.f, D);
 	}
 
+	if (fiberAlpha < 0.99f) {
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	}
+
 	glBindVertexArray(vao);
 	glDrawArrays(GL_TRIANGLES, 0, VertexCount);
 
+	if (fiberAlpha < 0.99f) glDisable(GL_BLEND);
 	if (showWireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 	// floor
@@ -319,12 +332,16 @@ static void drawImGuiPanel()
 	if (ImGui::CollapsingHeader("Geometry", ImGuiTreeNodeFlags_DefaultOpen)) {
 		int prevGeom = currentGeom;
 		ImGui::RadioButton("Yarn tubes (4)", &currentGeom, 0);
-		ImGui::RadioButton("Fiber tubes (5)", &currentGeom, 1);
+		ImGui::RadioButton("Plys (5)", &currentGeom, 1);
 		if (currentGeom != prevGeom) needRebuild = true;
 
 		int prevFibers = fiberCount;
-		ImGui::SliderInt("Fiber count", &fiberCount, 2, 48);
+		ImGui::SliderInt("Ply count", &fiberCount, 2, 48);
 		if (fiberCount != prevFibers && currentGeom == 1) needRebuild = true;
+
+		int prevFlyaway = flyawayCount;
+		ImGui::SliderInt("Flyaway count", &flyawayCount, 0, 24);
+		if (flyawayCount != prevFlyaway && currentGeom == 1) needRebuild = true;
 
 		ImGui::Checkbox("Wireframe", &showWireframe);
 	}
@@ -397,6 +414,14 @@ static void drawImGuiPanel()
 			ImGui::ColorEdit3("BG bottom", bgColorBot);
 		}
 		ImGui::Checkbox("Floor checker", &checkerEnabled);
+		ImGui::Separator();
+		ImGui::SliderFloat("Noise strength", &noiseStrength, 0.0f, 0.3f, "%.3f");
+		ImGui::SliderFloat("Noise scale", &noiseScale, 5.0f, 100.0f);
+		ImGui::SliderFloat("Rim strength", &rimStrength, 0.0f, 1.0f);
+		ImGui::SliderFloat("Rim power", &rimPower, 1.0f, 8.0f);
+		ImGui::SliderFloat("SSS strength", &sssStrength, 0.0f, 1.0f);
+		ImGui::SliderFloat("SSS power", &sssPower, 1.0f, 8.0f);
+		ImGui::SliderFloat("Fiber alpha", &fiberAlpha, 0.3f, 1.0f);
 	}
 
 	// ── Deep Opacity Maps ──

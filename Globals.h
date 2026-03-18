@@ -8,6 +8,7 @@
 
 // ── Yarn tweakable parameters ──
 extern int   fiberCount;
+extern int   flyawayCount;
 extern float yarnA;
 extern float yarnH;
 extern float yarnD;
@@ -50,6 +51,13 @@ extern bool  bgGradientEnabled;
 extern float bgColorTop[3];
 extern float bgColorBot[3];
 extern bool  checkerEnabled;
+extern float noiseStrength;
+extern float noiseScale;
+extern float rimStrength;
+extern float rimPower;
+extern float sssStrength;
+extern float sssPower;
+extern float fiberAlpha;
 extern GLuint colVbo;
 extern GLuint bgVao;
 extern cy::GLSLProgram bgProgram;

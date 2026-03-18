@@ -1,7 +1,8 @@
 #include "Globals.h"
 
 // ── Yarn tweakable parameters ──
-int   fiberCount   = 24;
+int   fiberCount   = 3;
+int   flyawayCount = 6;
 float yarnA        = 1.5f;
 float yarnH        = 4.0f;
 float yarnD        = 1.0f;
@@ -44,6 +45,13 @@ bool  bgGradientEnabled = true;
 float bgColorTop[3] = { 0.15f, 0.15f, 0.20f };
 float bgColorBot[3] = { 0.05f, 0.05f, 0.07f };
 bool  checkerEnabled = true;
+float noiseStrength = 0.15f;
+float noiseScale = 60.0f;
+float rimStrength = 0.3f;
+float rimPower = 3.0f;
+float sssStrength = 0.4f;
+float sssPower = 3.0f;
+float fiberAlpha = 0.85f;
 GLuint colVbo = 0;
 GLuint bgVao = 0;
 cy::GLSLProgram bgProgram;
@@ -64,7 +72,7 @@ GLuint lightPointVao, lightPointVbo;
 int currentShading = 0;
 const char* shadingNames[] = { "Blinn-Phong", "Kajiya-Kay", "Marschner" };
 int currentGeom = 0;
-const char* geomNames[] = { "Yarn tubes", "Fiber tubes" };
+const char* geomNames[] = { "Yarn tubes", "Plys" };
 bool needRebuild = true;
 
 // ── Camera ──

@@ -4,6 +4,7 @@
 
 struct YarnParams {
 	int   fiberCount;
+	int   flyawayCount;
 	float yarnA, yarnH, yarnD, yarnOmega, yarnRadius;
 };
 

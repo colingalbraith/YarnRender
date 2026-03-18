@@ -46,6 +46,15 @@ uniform float m_TT_strength; // TT lobe
 uniform float m_TRT_strength;// TRT lobe
 uniform float m_normalInfluence;
 
+// ── Fiber surface effects ──
+uniform float noiseStrength;
+uniform float noiseScale;
+uniform float rimStrength;
+uniform float rimPower;
+uniform float sssStrength;
+uniform float sssPower;
+uniform float fiberAlpha;
+
 out vec4 fragColor;
 
 const float PI = 3.14159265;
@@ -59,6 +68,46 @@ vec3 acesToneMap(vec3 x)
 {
     float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
     return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+}
+
+// Hash-based 3D noise (no texture needed)
+vec3 hash33(vec3 p)
+{
+    p = vec3(dot(p, vec3(127.1, 311.7, 74.7)),
+             dot(p, vec3(269.5, 183.3, 246.1)),
+             dot(p, vec3(113.5, 271.9, 124.6)));
+    return fract(sin(p) * 43758.5453) * 2.0 - 1.0;
+}
+
+float valueNoise(vec3 p)
+{
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(dot(hash33(i + vec3(0,0,0)), f - vec3(0,0,0)),
+                       dot(hash33(i + vec3(1,0,0)), f - vec3(1,0,0)), f.x),
+                   mix(dot(hash33(i + vec3(0,1,0)), f - vec3(0,1,0)),
+                       dot(hash33(i + vec3(1,1,0)), f - vec3(1,1,0)), f.x), f.y),
+               mix(mix(dot(hash33(i + vec3(0,0,1)), f - vec3(0,0,1)),
+                       dot(hash33(i + vec3(1,0,1)), f - vec3(1,0,1)), f.x),
+                   mix(dot(hash33(i + vec3(0,1,1)), f - vec3(0,1,1)),
+                       dot(hash33(i + vec3(1,1,1)), f - vec3(1,1,1)), f.x), f.y), f.z);
+}
+
+// Multi-octave FBM with anisotropic stretching along tangent
+float fiberFBM(vec3 pos, vec3 T)
+{
+    // Stretch coordinates along tangent for fiber grain
+    vec3 p = pos - T * dot(pos, T) * 0.7;
+    float val = 0.0;
+    float amp = 0.5;
+    float freq = 1.0;
+    for (int i = 0; i < 4; i++) {
+        val += amp * valueNoise(p * freq);
+        freq *= 2.2;
+        amp *= 0.45;
+    }
+    return val;
 }
 
 // ── 1. Blinn-Phong with wrap diffuse ──
@@ -166,8 +215,22 @@ void main()
 
     if (dot(N, V) < 0.0) N = -N;
 
-    // Per-fiber color variation
+    // Procedural fiber texture
+    float fiberNoise = 0.0;
+    if (noiseStrength > 0.0) {
+        // Normal perturbation
+        vec3 noiseVal = vec3(valueNoise(vPosition * noiseScale),
+                             valueNoise(vPosition * noiseScale + vec3(31.7)),
+                             valueNoise(vPosition * noiseScale + vec3(67.3)));
+        N = normalize(N + noiseStrength * 2.0 * noiseVal);
+
+        // Anisotropic fiber grain for color modulation
+        fiberNoise = fiberFBM(vPosition * noiseScale * 0.5, T);
+    }
+
+    // Per-fiber color variation + fiber grain texture
     vec3 bc = baseColor * mix(vec3(1.0), vFiberColor, colorVariation);
+    bc *= 1.0 + noiseStrength * 3.0 * fiberNoise;
 
     vec3 ambient;
     vec3 color;
@@ -175,6 +238,18 @@ void main()
     if      (shadingModel == 1) color = kajiyaKay(T, N, L, V, bc, ambient);
     else if (shadingModel == 2) color = marschner(T, N, L, V, bc, ambient);
     else                        color = blinnPhong(N, L, V, bc, ambient);
+
+    // Rim / Fresnel edge glow for fuzzy appearance
+    if (rimStrength > 0.0) {
+        float rim = pow(1.0 - max(dot(N, V), 0.0), rimPower);
+        color += rimStrength * rim * bc * lightIntensity * 0.5;
+    }
+
+    // Subsurface scattering — light passing through thin fibers
+    if (sssStrength > 0.0) {
+        float scatter = pow(max(dot(-L, V), 0.0), sssPower);
+        color += sssStrength * scatter * bc * lightIntensity * 0.4;
+    }
 
     vec3  projCoords = ShadowCoord.xyz / ShadowCoord.w;
     float visibility = 1.0;
@@ -256,5 +331,10 @@ void main()
         color = pow(color, vec3(1.0/2.2));
     }
 
-    fragColor = vec4(color, 1.0);
+    // Alpha: fiber base alpha + Fresnel edge fade for softness
+    float alpha = fiberAlpha;
+    float edgeFade = pow(1.0 - max(dot(normalize(vNormal), V), 0.0), 2.0);
+    alpha = mix(alpha, alpha * 0.3, edgeFade * (1.0 - fiberAlpha));
+
+    fragColor = vec4(color, alpha);
 }

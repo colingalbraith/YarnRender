@@ -47,16 +47,35 @@ cy::Vec3f fiberCurve(float t, float a, float h, float d,
 	return g + (e2 * cosf(th) + e3 * sinf(th)) * r;
 }
 
+static float hashFloat(unsigned int x) {
+	x ^= x >> 13; x *= 0x5bd1e995u; x ^= x >> 15;
+	return (float)(x & 0xFFFF) / 65535.f;
+}
+
 void generateTube(
 	const std::vector<cy::Vec3f>& pts,
 	const std::vector<cy::Vec3f>& tans,
 	float radius, int sides,
 	std::vector<cy::Vec3f>& oP,
 	std::vector<cy::Vec3f>& oN,
-	std::vector<cy::Vec3f>& oT)
+	std::vector<cy::Vec3f>& oT,
+	float radiusVariation,
+	unsigned int seed)
 {
 	int n = (int)pts.size();
 	if (n < 2) return;
+
+	// Pre-compute per-ring radius variation
+	std::vector<float> radii(n, radius);
+	if (radiusVariation > 0.f) {
+		for (int i = 0; i < n; i++) {
+			float noise = sinf((float)i * 0.37f + hashFloat(seed + i*7) * 6.28f) * 0.5f
+			            + sinf((float)i * 0.13f + hashFloat(seed + i*13 + 999) * 6.28f) * 0.3f
+			            + sinf((float)i * 0.71f + hashFloat(seed + i*31 + 5555) * 6.28f) * 0.2f;
+			radii[i] = radius * (1.f + radiusVariation * noise);
+			radii[i] = std::max(radii[i], radius * 0.3f);
+		}
+	}
 
 	std::vector<cy::Vec3f> N(n), B(n);
 
@@ -87,7 +106,7 @@ void generateTube(
 
 			auto ring = [&](int ri, float ang, cy::Vec3f& p, cy::Vec3f& nn, cy::Vec3f& tt){
 				nn = N[ri]*cosf(ang) + B[ri]*sinf(ang);
-				p  = pts[ri] + nn * radius;
+				p  = pts[ri] + nn * radii[ri];
 				tt = tans[ri];
 			};
 
