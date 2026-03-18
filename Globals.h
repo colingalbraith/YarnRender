@@ -52,6 +52,14 @@ extern float y_wrap;
 extern float y_tangentBlend;
 extern float y_shininess;
 extern float y_fuzzWidth;
+extern float y_specShift1;
+extern float y_specShift2;
+extern float y_spec2Tint;
+extern float y_shininess2;
+extern float y_fresnel;
+extern float y_transmission;
+extern float y_transPower;
+extern float y_tangentNoise;
 
 // ── Visual enhancements ──
 extern float colorVariation;
@@ -61,6 +69,9 @@ extern bool  bgGradientEnabled;
 extern float bgColorTop[3];
 extern float bgColorBot[3];
 extern bool  checkerEnabled;
+extern bool  vsyncEnabled;
+extern int   msaaSamples;
+extern GLFWwindow* gWindow;
 extern float noiseStrength;
 extern float noiseScale;
 extern float rimStrength;

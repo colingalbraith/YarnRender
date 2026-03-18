@@ -54,7 +54,7 @@ void buildFiberTubes(const YarnParams& p,
 	std::vector<float>& tubeU,
 	std::vector<float>& tubeV)
 {
-	const int nRows = 6, nLoops = 6, spl = 64;
+	const int nRows = 6, nLoops = 6, spl = 48;
 	int nOuter = p.fiberCount;
 	float w = p.yarnH + .5f;
 	float dt = 2.f * PI / spl;
@@ -62,20 +62,14 @@ void buildFiberTubes(const YarnParams& p,
 
 	struct PlyLayer { float radius, tubeR; int count; float omegaMul, phiOffset; int sides; };
 
-	float coreR      = 0.20f;
-	float innerR     = p.yarnRadius * 0.56f;
-	int   nInner     = std::max(4, nOuter * 2 / 3);
 	float outerR     = p.yarnRadius;
-	float outerTubeR = std::max(0.04f, 0.75f * PI * outerR / nOuter);
-	float innerTubeR = std::max(0.04f, 0.75f * PI * innerR / nInner);
+	float outerTubeR = nOuter > 0 ? std::max(0.04f, 0.75f * PI * outerR / nOuter) : 0.f;
 	int   nFlyaway   = p.flyawayCount;
 
 	PlyLayer layers[] = {
-		{ 0.0f,   coreR,      1,      0.f,   0.f,          10 },
-		{ innerR, innerTubeR, nInner,  1.15f, PI / nInner,   6 },
 		{ outerR, outerTubeR, nOuter,  1.0f,  0.f,           6 },
 	};
-	int nLayers = 3;
+	int nLayers = (nOuter > 0) ? 1 : 0;
 
 	for (int row = 0; row < nRows; row++) {
 		float y0 = w * row;

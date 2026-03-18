@@ -40,12 +40,20 @@ float m_normalInfluence = 0.35f;
 // ── Yarn shading parameters ──
 float y_ambient      = 0.20f;
 float y_diffuse      = 0.75f;
-float y_specular     = 0.20f;
-float y_fuzz         = 0.35f;
+float y_specular     = 0.35f;
+float y_fuzz         = 0.10f;
 float y_wrap         = 0.5f;
 float y_tangentBlend = 0.6f;
-float y_shininess    = 24.0f;
-float y_fuzzWidth    = 8.0f;
+float y_shininess    = 40.0f;
+float y_fuzzWidth    = 6.0f;
+float y_specShift1   = 0.08f;   // primary shifts toward root
+float y_specShift2   = 0.12f;   // secondary shifts toward tip
+float y_spec2Tint    = 0.40f;   // secondary specular colored intensity
+float y_shininess2   = 16.0f;   // secondary is broader
+float y_fresnel      = 0.6f;    // Fresnel boost
+float y_transmission = 0.15f;   // backscatter
+float y_transPower   = 4.0f;    // backscatter falloff
+float y_tangentNoise = 0.5f;    // tangent perturbation
 
 // ── Visual enhancements ──
 float colorVariation = 0.5f;
@@ -55,7 +63,10 @@ bool  bgGradientEnabled = true;
 float bgColorTop[3] = { 0.15f, 0.15f, 0.20f };
 float bgColorBot[3] = { 0.05f, 0.05f, 0.07f };
 bool  checkerEnabled = true;
-float noiseStrength = 0.15f;
+bool  vsyncEnabled = false;
+int   msaaSamples = 2;
+GLFWwindow* gWindow = nullptr;
+float noiseStrength = 0.0f;
 float noiseScale = 60.0f;
 float rimStrength = 0.15f;
 float rimPower = 3.0f;

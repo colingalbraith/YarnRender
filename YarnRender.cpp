@@ -218,6 +218,14 @@ static void myDisplay()
 	program.SetUniform("y_tangentBlend", y_tangentBlend);
 	program.SetUniform("y_shininess",    y_shininess);
 	program.SetUniform("y_fuzzWidth",    y_fuzzWidth);
+	program.SetUniform("y_specShift1",   y_specShift1);
+	program.SetUniform("y_specShift2",   y_specShift2);
+	program.SetUniform("y_spec2Tint",    y_spec2Tint);
+	program.SetUniform("y_shininess2",   y_shininess2);
+	program.SetUniform("y_fresnel",      y_fresnel);
+	program.SetUniform("y_transmission", y_transmission);
+	program.SetUniform("y_transPower",   y_transPower);
+	program.SetUniform("y_tangentNoise", y_tangentNoise);
 
 	program.SetUniformMatrix4("shadowMatrix", (sMat * model).cell);
 	program.SetUniformMatrix4("domLightVM", lightVM.cell);
@@ -357,7 +365,7 @@ static void drawImGuiPanel()
 		if (currentGeom != prevGeom) needRebuild = true;
 
 		int prevFibers = fiberCount;
-		ImGui::SliderInt("Ply count", &fiberCount, 2, 48);
+		ImGui::SliderInt("Ply count", &fiberCount, 0, 48);
 		if (fiberCount != prevFibers && currentGeom == 1) needRebuild = true;
 
 		int prevFlyaway = flyawayCount;
@@ -426,15 +434,35 @@ static void drawImGuiPanel()
 
 	// ── Yarn shader params ──
 	if (ImGui::CollapsingHeader("Yarn Shader Params")) {
+		ImGui::Text("Diffuse");
 		ImGui::SliderFloat("Y Ambient",       &y_ambient,      0.0f, 1.0f);
 		ImGui::SliderFloat("Y Diffuse",       &y_diffuse,      0.0f, 2.0f);
-		ImGui::SliderFloat("Y Specular",      &y_specular,     0.0f, 1.0f);
-		ImGui::SliderFloat("Y Fuzz",          &y_fuzz,         0.0f, 1.0f);
 		ImGui::SliderFloat("Y Wrap",          &y_wrap,         0.0f, 1.0f);
 		ImGui::SliderFloat("Y Tangent blend", &y_tangentBlend, 0.0f, 1.0f);
-		ImGui::SliderFloat("Y Shininess",     &y_shininess,    1.0f, 128.0f);
+		ImGui::Separator();
+		ImGui::Text("Primary Specular");
+		ImGui::SliderFloat("Y Specular",      &y_specular,     0.0f, 2.0f);
+		ImGui::SliderFloat("Y Shininess",     &y_shininess,    4.0f, 256.0f);
+		ImGui::SliderFloat("Y Shift 1 (root)",&y_specShift1,   -0.3f, 0.3f);
+		ImGui::Separator();
+		ImGui::Text("Secondary Specular");
+		ImGui::SliderFloat("Y Spec2 tint",    &y_spec2Tint,    0.0f, 2.0f);
+		ImGui::SliderFloat("Y Shininess 2",   &y_shininess2,   2.0f, 128.0f);
+		ImGui::SliderFloat("Y Shift 2 (tip)", &y_specShift2,   -0.3f, 0.3f);
+		ImGui::Separator();
+		ImGui::Text("Effects");
+		ImGui::SliderFloat("Y Fresnel",       &y_fresnel,      0.0f, 1.0f);
+		ImGui::SliderFloat("Y Fuzz",          &y_fuzz,         0.0f, 1.0f);
 		ImGui::SliderFloat("Y Fuzz width",    &y_fuzzWidth,    1.0f, 32.0f);
-		if (ImGui::Button("Reset Yarn")) { y_ambient=0.20f; y_diffuse=0.75f; y_specular=0.20f; y_fuzz=0.35f; y_wrap=0.5f; y_tangentBlend=0.6f; y_shininess=24.f; y_fuzzWidth=8.f; }
+		ImGui::SliderFloat("Y Transmission",  &y_transmission, 0.0f, 1.0f);
+		ImGui::SliderFloat("Y Trans power",   &y_transPower,   1.0f, 16.0f);
+		ImGui::SliderFloat("Y Tangent noise", &y_tangentNoise, 0.0f, 2.0f);
+		if (ImGui::Button("Reset Yarn")) {
+			y_ambient=0.20f; y_diffuse=0.75f; y_specular=0.35f; y_fuzz=0.10f;
+			y_wrap=0.5f; y_tangentBlend=0.6f; y_shininess=40.f; y_fuzzWidth=6.f;
+			y_specShift1=0.08f; y_specShift2=0.12f; y_spec2Tint=0.40f; y_shininess2=16.f;
+			y_fresnel=0.6f; y_transmission=0.15f; y_transPower=4.f; y_tangentNoise=0.5f;
+		}
 	}
 
 	// ── Rendering ──
@@ -448,6 +476,9 @@ static void drawImGuiPanel()
 			ImGui::ColorEdit3("BG bottom", bgColorBot);
 		}
 		ImGui::Checkbox("Floor checker", &checkerEnabled);
+		if (ImGui::Checkbox("VSync", &vsyncEnabled))
+			glfwSwapInterval(vsyncEnabled ? 1 : 0);
+		ImGui::Text("MSAA: %dx (restart to change)", msaaSamples);
 		ImGui::Separator();
 		ImGui::SliderInt("Fibers per ply", &fiberStripes, 0, 32);
 		ImGui::SliderFloat("Fiber twist", &fiberTwistRate, 0.0f, 200.0f);
@@ -582,12 +613,14 @@ int main(int /*argc*/, char** /*argv*/)
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+	glfwWindowHint(GLFW_SAMPLES, msaaSamples);
 
 	GLFWwindow* win = glfwCreateWindow(windowWidth, windowHeight,
 		"YarnRender — Colin Galbraith", NULL, NULL);
 	if (!win) { glfwTerminate(); return 1; }
+	gWindow = win;
 	glfwMakeContextCurrent(win);
-	glfwSwapInterval(1); // vsync
+	glfwSwapInterval(vsyncEnabled ? 1 : 0);
 
 	glewExperimental = GL_TRUE;
 	glewInit();
@@ -608,9 +641,10 @@ int main(int /*argc*/, char** /*argv*/)
 	ImGui_ImplOpenGL3_Init("#version 330");
 
 	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_MULTISAMPLE);
 
-	if (!program.BuildFiles("shader.vert", "shader.frag")) return 1;
-	if (!planeProgram.BuildFiles("plane.vert", "plane.frag")) return 1;
+	if (!program.BuildFilesEx("shader.vert", "shader.frag")) { fprintf(stderr, "Main shader failed!\n"); return 1; }
+	if (!planeProgram.BuildFiles("plane.vert", "plane.frag")) { fprintf(stderr, "Plane shader failed!\n"); return 1; }
 
 	// ── yarn VAO + VBOs ──
 	glGenVertexArrays(1, &vao);
@@ -720,7 +754,7 @@ int main(int /*argc*/, char** /*argv*/)
 		fprintf(stderr, "Background shader failed\n");
 
 	// shadow FBO
-	renderBuffer.Initialize(true, 4096, 4096);
+	renderBuffer.Initialize(true, 2048, 2048);
 	renderBuffer.BindTexture();
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);

@@ -44,7 +44,11 @@ void main()
     if(projCoords.x >= 0.0 && projCoords.x <= 1.0 && projCoords.y >= 0.0 && projCoords.y <= 1.0 && projCoords.z <= 1.0) {
         float bias = max(0.005 * (1.0 - dot(normal, lightDir)), 0.0005);
         projCoords.z -= bias;
-        visibility = texture(shadowMap, projCoords);
+        vec2 ts = 0.5 / vec2(textureSize(shadowMap, 0));
+        visibility = (texture(shadowMap, projCoords + vec3(-ts.x, -ts.y, 0))
+                    + texture(shadowMap, projCoords + vec3( ts.x, -ts.y, 0))
+                    + texture(shadowMap, projCoords + vec3(-ts.x,  ts.y, 0))
+                    + texture(shadowMap, projCoords + vec3( ts.x,  ts.y, 0))) * 0.25;
     }
 
     vec3 finalColor = ambient + ((diffuse + specular) * lightIntensity) * visibility;
