@@ -6,327 +6,14 @@
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
-#include "cyCore.h"
-#include "cyVector.h"
-#include "cyMatrix.h"
-#include "cyGL.h"
+
+#include "Globals.h"
+#include "YarnMath.h"
+#include "YarnGeometry.h"
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
-
-static const float PI = 3.14159265f;
-
-// ════════════════════════════════════════════════════════════════════════
-//  Tweakable yarn parameters (exposed via ImGui)
-// ════════════════════════════════════════════════════════════════════════
-
-static int   fiberCount   = 24;
-static float yarnA        = 1.5f;   // loop roundness
-static float yarnH        = 4.0f;   // loop height
-static float yarnD        = 1.0f;   // loop depth
-static float yarnOmega    = 9.0f;   // fiber twist
-static float yarnRadius   = 0.50f;  // fiber orbit radius
-static float lightIntensity = 1.8f;
-static float yarnColor[3] = { 0.65f, 0.30f, 0.35f };
-static bool  showWireframe = false;
-
-// ── Blinn-Phong parameters ──
-static float bp_ambient   = 0.25f;
-static float bp_diffuse   = 0.70f;
-static float bp_specular  = 0.70f;
-static float bp_shininess = 64.0f;
-static float bp_wrap      = 0.45f;
-
-// ── Kajiya-Kay parameters ──
-static float kk_ambient       = 0.22f;
-static float kk_diffuse       = 0.60f;
-static float kk_specPrimary   = 0.60f;
-static float kk_specSecondary = 0.35f;
-static float kk_shinyPrimary  = 80.0f;
-static float kk_shinySecondary = 18.0f;
-
-// ── Marschner parameters ──
-static float m_ambient      = 0.18f;
-static float m_alphaR       = -0.07f; // cuticle tilt
-static float m_betaR        = 0.12f;  // roughness
-static float m_R_strength   = 0.40f;
-static float m_TT_strength  = 1.00f;
-static float m_TRT_strength = 0.70f;
-
-// ════════════════════════════════════════════════════════════════════════
-//  Yarn curve math  (ported from plain-knit-yarn / plain-knit.c)
-// ════════════════════════════════════════════════════════════════════════
-
-static cy::Vec3f yarnCurve(float t, float a, float h, float d)
-{
-	return cy::Vec3f(t + a * sinf(2.f * t),
-	                 h * cosf(t),
-	                 d * cosf(2.f * t));
-}
-
-static cy::Vec3f yarnDeriv(float t, float a, float h, float d)
-{
-	return cy::Vec3f(1.f + 2.f * a * cosf(2.f * t),
-	                 -h * sinf(t),
-	                 -2.f * d * sinf(2.f * t));
-}
-
-static void frenetFrame(float t, float a, float h, float d,
-                        cy::Vec3f& e1, cy::Vec3f& e2, cy::Vec3f& e3)
-{
-	e1 = yarnDeriv(t, a, h, d);
-
-	float u = e1.Dot(e1);
-	float v = 2.f*h*h*cosf(t)*sinf(t)
-	        + 16.f*d*d*cosf(2.f*t)*sinf(2.f*t)
-	        - 8.f*a*(1.f + 2.f*a*cosf(2.f*t))*sinf(2.f*t);
-	float x = 1.f / sqrtf(u);
-	float y = v / (2.f * powf(u, 1.5f));
-
-	e2.x = y * (-1.f - 2.f*a*cosf(2.f*t)) - x * 4.f*a*sinf(2.f*t);
-	e2.y = y * h*sinf(t)                    - x * h*cosf(t);
-	e2.z = y * 2.f*d*sinf(2.f*t)            - x * 4.f*d*cosf(2.f*t);
-
-	e1 = e1 * x;
-	e2 = e2 * (1.f / e2.Length());
-	e3 = e1.Cross(e2);
-}
-
-static cy::Vec3f fiberCurve(float t, float a, float h, float d,
-                            float r, float omega, float phi)
-{
-	cy::Vec3f g = yarnCurve(t, a, h, d);
-	cy::Vec3f e1, e2, e3;
-	frenetFrame(t, a, h, d, e1, e2, e3);
-	float th = t * omega - 2.f * cosf(t) + phi;
-	return g + (e2 * cosf(th) + e3 * sinf(th)) * r;
-}
-
-// ════════════════════════════════════════════════════════════════════════
-//  Tube-mesh generation around a polyline
-// ════════════════════════════════════════════════════════════════════════
-
-static void generateTube(
-	const std::vector<cy::Vec3f>& pts,
-	const std::vector<cy::Vec3f>& tans,
-	float radius, int sides,
-	std::vector<cy::Vec3f>& oP,
-	std::vector<cy::Vec3f>& oN,
-	std::vector<cy::Vec3f>& oT)
-{
-	int n = (int)pts.size();
-	if (n < 2) return;
-
-	std::vector<cy::Vec3f> N(n), B(n);
-
-	cy::Vec3f up(0, 1, 0);
-	if (fabsf(tans[0].Dot(up)) > 0.99f) up = cy::Vec3f(1, 0, 0);
-	N[0] = (up - tans[0] * tans[0].Dot(up)).GetNormalized();
-	B[0] = tans[0].Cross(N[0]).GetNormalized();
-
-	for (int i = 1; i < n; i++) {
-		cy::Vec3f ax = tans[i-1].Cross(tans[i]);
-		float axL = ax.Length();
-		if (axL > 1e-6f) {
-			ax /= axL;
-			float ang = acosf(std::min(std::max(tans[i-1].Dot(tans[i]), -1.f), 1.f));
-			float c = cosf(ang), s = sinf(ang);
-			cy::Vec3f Np = N[i-1];
-			N[i] = (Np*c + ax.Cross(Np)*s + ax*(ax.Dot(Np))*(1-c)).GetNormalized();
-		} else {
-			N[i] = N[i-1];
-		}
-		B[i] = tans[i].Cross(N[i]).GetNormalized();
-	}
-
-	for (int i = 0; i < n - 1; i++) {
-		for (int j = 0; j < sides; j++) {
-			float a0 = 2.f * PI * j / sides;
-			float a1 = 2.f * PI * ((j+1) % sides) / sides;
-
-			auto ring = [&](int ri, float ang, cy::Vec3f& p, cy::Vec3f& nn, cy::Vec3f& tt){
-				nn = N[ri]*cosf(ang) + B[ri]*sinf(ang);
-				p  = pts[ri] + nn * radius;
-				tt = tans[ri];
-			};
-
-			cy::Vec3f p00,n00,t00; ring(i,   a0, p00,n00,t00);
-			cy::Vec3f p01,n01,t01; ring(i,   a1, p01,n01,t01);
-			cy::Vec3f p10,n10,t10; ring(i+1, a0, p10,n10,t10);
-			cy::Vec3f p11,n11,t11; ring(i+1, a1, p11,n11,t11);
-
-			oP.push_back(p00); oN.push_back(n00); oT.push_back(t00);
-			oP.push_back(p10); oN.push_back(n10); oT.push_back(t10);
-			oP.push_back(p01); oN.push_back(n01); oT.push_back(t01);
-
-			oP.push_back(p01); oN.push_back(n01); oT.push_back(t01);
-			oP.push_back(p10); oN.push_back(n10); oT.push_back(t10);
-			oP.push_back(p11); oN.push_back(n11); oT.push_back(t11);
-		}
-	}
-}
-
-// ════════════════════════════════════════════════════════════════════════
-//  Geometry builders
-// ════════════════════════════════════════════════════════════════════════
-
-static void buildYarnTubes(
-	std::vector<cy::Vec3f>& pos,
-	std::vector<cy::Vec3f>& nrm,
-	std::vector<cy::Vec3f>& tan)
-{
-	const int nRows = 6, nLoops = 6, spl = 48;
-	float w = yarnH + .5f;
-	float tubeR = 0.45f;
-	int   sides = 8;
-	float dt = 2.f * PI / spl;
-
-	for (int row = 0; row < nRows; row++) {
-		float y0 = w * row;
-		int total = nLoops * spl;
-		std::vector<cy::Vec3f> curve(total), tans(total);
-		for (int i = 0; i < total; i++) {
-			float t = dt * i;
-			cy::Vec3f p = yarnCurve(t, yarnA, yarnH, yarnD);
-			p.y += y0;
-			curve[i] = p;
-			tans[i]  = yarnDeriv(t, yarnA, yarnH, yarnD).GetNormalized();
-		}
-		generateTube(curve, tans, tubeR, sides, pos, nrm, tan);
-	}
-}
-
-static float fibHash(int row, int layer, int fib, int channel)
-{
-	unsigned h = (unsigned)(row*7919 + layer*6271 + fib*3571 + channel*1301);
-	h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
-	return (float)(h & 0xFFFF) / 65535.f;
-}
-
-static void buildFiberTubes(
-	std::vector<cy::Vec3f>& pos,
-	std::vector<cy::Vec3f>& nrm,
-	std::vector<cy::Vec3f>& tan)
-{
-	const int nRows = 6, nLoops = 6, spl = 64;
-	int nOuter = fiberCount;
-	float w = yarnH + .5f;
-	float dt = 2.f * PI / spl;
-	int total = nLoops * spl;
-
-	struct PlyLayer { float radius, tubeR; int count; float omegaMul, phiOffset; int sides; };
-
-	float coreR      = 0.20f;
-	float innerR     = yarnRadius * 0.56f;
-	int   nInner     = std::max(4, nOuter * 2 / 3);
-	float outerR     = yarnRadius;
-	float outerTubeR = std::max(0.04f, 0.75f * PI * outerR / nOuter);
-	float innerTubeR = std::max(0.04f, 0.75f * PI * innerR / nInner);
-	int   nFlyaway   = std::max(3, nOuter / 4);
-
-	PlyLayer layers[] = {
-		{ 0.0f,   coreR,      1,      0.f,   0.f,          10 },
-		{ innerR, innerTubeR, nInner,  1.15f, PI / nInner,   6 },
-		{ outerR, outerTubeR, nOuter,  1.0f,  0.f,           6 },
-	};
-	int nLayers = 3;
-
-	for (int row = 0; row < nRows; row++) {
-		float y0 = w * row;
-
-		for (int li = 0; li < nLayers; li++) {
-			PlyLayer& L = layers[li];
-			float layerOmega = yarnOmega * L.omegaMul;
-
-			for (int fib = 0; fib < L.count; fib++) {
-				float phi = (2.f * PI * fib / L.count) + L.phiOffset;
-				float rPerturb = (li > 0) ? 0.025f * sinf(5.3f*fib + 1.7f*row) : 0.f;
-				float pPerturb = (li > 0) ? 0.04f  * sinf(3.1f*fib + 2.3f*row) : 0.f;
-				float effR   = L.radius + rPerturb;
-				float effPhi = phi + pPerturb;
-
-				std::vector<cy::Vec3f> curve(total), tans(total);
-				for (int i = 0; i < total; i++) {
-					float t = dt * i;
-					cy::Vec3f p;
-					if (L.radius < 0.001f) p = yarnCurve(t, yarnA, yarnH, yarnD);
-					else                    p = fiberCurve(t, yarnA, yarnH, yarnD, effR, layerOmega, effPhi);
-					p.y += y0;
-					curve[i] = p;
-					float eps = dt * 0.01f;
-					cy::Vec3f pp, pm;
-					if (L.radius < 0.001f) { pp = yarnCurve(t+eps, yarnA, yarnH, yarnD); pm = yarnCurve(t-eps, yarnA, yarnH, yarnD); }
-					else { pp = fiberCurve(t+eps, yarnA, yarnH, yarnD, effR, layerOmega, effPhi); pm = fiberCurve(t-eps, yarnA, yarnH, yarnD, effR, layerOmega, effPhi); }
-					tans[i] = (pp - pm).GetNormalized();
-				}
-				generateTube(curve, tans, L.tubeR, L.sides, pos, nrm, tan);
-			}
-		}
-
-		// flyaway fibers
-		for (int fl = 0; fl < nFlyaway; fl++) {
-			float basePhi  = 2.f * PI * fl / nFlyaway + fibHash(row,99,fl,0) * PI;
-			float flyOmega = yarnOmega * (0.85f + 0.3f * fibHash(row,99,fl,1));
-			float freq1 = 2.5f + 3.f*fibHash(row,99,fl,2), freq2 = 5.f + 4.f*fibHash(row,99,fl,3);
-			float amp1  = 0.12f + 0.18f*fibHash(row,99,fl,4), amp2 = 0.06f + 0.10f*fibHash(row,99,fl,5);
-			float phase1 = fibHash(row,99,fl,6)*2.f*PI, phase2 = fibHash(row,99,fl,7)*2.f*PI;
-			float flyTubeR = 0.025f + 0.015f * fibHash(row,99,fl,8);
-
-			std::vector<cy::Vec3f> curve(total), tans(total);
-			for (int i = 0; i < total; i++) {
-				float t = dt * i;
-				float flyR = outerR + amp1*sinf(freq1*t+phase1) + amp2*sinf(freq2*t+phase2);
-				flyR = std::max(flyR, outerR * 0.7f);
-				cy::Vec3f p = fiberCurve(t, yarnA, yarnH, yarnD, flyR, flyOmega, basePhi);
-				p.y += y0; curve[i] = p;
-				float eps = dt*0.01f;
-				float flyRp = outerR + amp1*sinf(freq1*(t+eps)+phase1) + amp2*sinf(freq2*(t+eps)+phase2);
-				float flyRm = outerR + amp1*sinf(freq1*(t-eps)+phase1) + amp2*sinf(freq2*(t-eps)+phase2);
-				flyRp = std::max(flyRp, outerR*0.7f); flyRm = std::max(flyRm, outerR*0.7f);
-				cy::Vec3f pp = fiberCurve(t+eps, yarnA, yarnH, yarnD, flyRp, flyOmega, basePhi);
-				cy::Vec3f pm = fiberCurve(t-eps, yarnA, yarnH, yarnD, flyRm, flyOmega, basePhi);
-				tans[i] = (pp - pm).GetNormalized();
-			}
-			generateTube(curve, tans, flyTubeR, 4, pos, nrm, tan);
-		}
-	}
-}
-
-// ════════════════════════════════════════════════════════════════════════
-//  OpenGL globals
-// ════════════════════════════════════════════════════════════════════════
-
-GLuint vao, posVbo, normVbo, tanVbo;
-int VertexCount = 0;
-cy::GLSLProgram program;
-cy::Vec3f bboxMin, bboxMax, objectCenter;
-cy::Vec3f lightPos(40.f, 35.f, 30.f);
-
-cy::GLRenderDepth2D renderBuffer;
-cy::GLSLProgram planeProgram;
-GLuint planeVao, planeVbo;
-GLuint lightPointVao, lightPointVbo;
-
-int currentShading = 0;
-const char* shadingNames[] = { "Blinn-Phong", "Kajiya-Kay", "Marschner" };
-
-int currentGeom = 0;
-const char* geomNames[] = { "Yarn tubes", "Fiber tubes" };
-bool needRebuild = true;
-
-cy::Matrix4f objectRotation = cy::Matrix4f::RotationXYZ(0.f, 0.f, 0.f);
-float camDist = 55.f, camYaw = 0.f, camPitch = 0.25f;
-double prevMouseX, prevMouseY;
-bool mouseLeft = false, mouseRight = false, mouseMiddle = false;
-int windowWidth = 1024, windowHeight = 768;
-
-// FPS tracking
-double lastFpsTime = 0.0;
-int    frameCount  = 0;
-float  currentFps  = 0.f;
 
 // ════════════════════════════════════════════════════════════════════════
 //  (Re)build geometry VBOs
@@ -336,10 +23,12 @@ static void rebuildGeometry()
 {
 	std::vector<cy::Vec3f> pos, nrm, tan;
 
+	YarnParams p = { fiberCount, yarnA, yarnH, yarnD, yarnOmega, yarnRadius };
+
 	if (currentGeom == 1)
-		buildFiberTubes(pos, nrm, tan);
+		buildFiberTubes(p, pos, nrm, tan);
 	else
-		buildYarnTubes(pos, nrm, tan);
+		buildYarnTubes(p, pos, nrm, tan);
 
 	VertexCount = (int)pos.size();
 
@@ -623,7 +312,6 @@ static void drawImGuiPanel()
 
 static void keyCallback(GLFWwindow* win, int key, int sc, int action, int mod)
 {
-	// let ImGui handle keys when it wants focus
 	ImGui_ImplGlfw_KeyCallback(win, key, sc, action, mod);
 	if (ImGui::GetIO().WantCaptureKeyboard) return;
 
@@ -732,7 +420,7 @@ int main(int /*argc*/, char** /*argv*/)
 	style.FrameRounding  = 4.f;
 	style.Alpha = 0.92f;
 
-	ImGui_ImplGlfw_InitForOpenGL(win, false); // false = we install callbacks ourselves
+	ImGui_ImplGlfw_InitForOpenGL(win, false);
 	ImGui_ImplOpenGL3_Init("#version 330");
 
 	glEnable(GL_DEPTH_TEST);
@@ -794,7 +482,7 @@ int main(int /*argc*/, char** /*argv*/)
 
 	glClearColor(0.f, 0.f, 0.f, 0.f);
 
-	// install callbacks (after ImGui init so we can forward events)
+	// install callbacks
 	glfwSetKeyCallback(win, keyCallback);
 	glfwSetMouseButtonCallback(win, mouseButtonCB);
 	glfwSetCursorPosCallback(win, cursorPosCB);

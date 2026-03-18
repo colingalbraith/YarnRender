@@ -18,7 +18,7 @@ IMGUI_SRC = imgui/imgui.cpp \
             imgui/imgui_impl_opengl3.cpp
 
 TARGET = YarnRender
-SRC = YarnRender.cpp $(IMGUI_SRC)
+SRC = YarnRender.cpp Globals.cpp YarnMath.cpp YarnGeometry.cpp $(IMGUI_SRC)
 
 all: $(TARGET)
 
