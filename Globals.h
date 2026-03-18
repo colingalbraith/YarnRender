@@ -42,6 +42,18 @@ extern float m_TT_strength;
 extern float m_TRT_strength;
 extern float m_normalInfluence;
 
+// ── Visual enhancements ──
+extern float colorVariation;
+extern float exposure;
+extern bool  gammaEnabled;
+extern bool  bgGradientEnabled;
+extern float bgColorTop[3];
+extern float bgColorBot[3];
+extern bool  checkerEnabled;
+extern GLuint colVbo;
+extern GLuint bgVao;
+extern cy::GLSLProgram bgProgram;
+
 // ── OpenGL objects ──
 extern GLuint vao, posVbo, normVbo, tanVbo;
 extern int VertexCount;

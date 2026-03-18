@@ -10,9 +10,11 @@ struct YarnParams {
 void buildYarnTubes(const YarnParams& p,
 	std::vector<cy::Vec3f>& pos,
 	std::vector<cy::Vec3f>& nrm,
-	std::vector<cy::Vec3f>& tan);
+	std::vector<cy::Vec3f>& tan,
+	std::vector<cy::Vec3f>& col);
 
 void buildFiberTubes(const YarnParams& p,
 	std::vector<cy::Vec3f>& pos,
 	std::vector<cy::Vec3f>& nrm,
-	std::vector<cy::Vec3f>& tan);
+	std::vector<cy::Vec3f>& tan,
+	std::vector<cy::Vec3f>& col);

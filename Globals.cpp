@@ -36,6 +36,18 @@ float m_TT_strength  = 1.00f;
 float m_TRT_strength = 0.70f;
 float m_normalInfluence = 0.35f;
 
+// ── Visual enhancements ──
+float colorVariation = 0.5f;
+float exposure = 1.0f;
+bool  gammaEnabled = true;
+bool  bgGradientEnabled = true;
+float bgColorTop[3] = { 0.15f, 0.15f, 0.20f };
+float bgColorBot[3] = { 0.05f, 0.05f, 0.07f };
+bool  checkerEnabled = true;
+GLuint colVbo = 0;
+GLuint bgVao = 0;
+cy::GLSLProgram bgProgram;
+
 // ── OpenGL objects ──
 GLuint vao, posVbo, normVbo, tanVbo;
 int VertexCount = 0;

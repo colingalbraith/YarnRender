@@ -21,14 +21,14 @@
 
 static void rebuildGeometry()
 {
-	std::vector<cy::Vec3f> pos, nrm, tan;
+	std::vector<cy::Vec3f> pos, nrm, tan, col;
 
 	YarnParams p = { fiberCount, yarnA, yarnH, yarnD, yarnOmega, yarnRadius };
 
 	if (currentGeom == 1)
-		buildFiberTubes(p, pos, nrm, tan);
+		buildFiberTubes(p, pos, nrm, tan, col);
 	else
-		buildYarnTubes(p, pos, nrm, tan);
+		buildYarnTubes(p, pos, nrm, tan, col);
 
 	VertexCount = (int)pos.size();
 
@@ -46,6 +46,8 @@ static void rebuildGeometry()
 	glBufferData(GL_ARRAY_BUFFER, nrm.size()*sizeof(cy::Vec3f), nrm.data(), GL_STATIC_DRAW);
 	glBindBuffer(GL_ARRAY_BUFFER, tanVbo);
 	glBufferData(GL_ARRAY_BUFFER, tan.size()*sizeof(cy::Vec3f), tan.data(), GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, colVbo);
+	glBufferData(GL_ARRAY_BUFFER, col.size()*sizeof(cy::Vec3f), col.data(), GL_STATIC_DRAW);
 
 	needRebuild = false;
 }
@@ -134,6 +136,18 @@ static void myDisplay()
 	glViewport(0, 0, windowWidth, windowHeight);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+	// ── background gradient ──
+	if (bgGradientEnabled) {
+		glDisable(GL_DEPTH_TEST);
+		bgProgram.Bind();
+		bgProgram.SetUniform("bgTop", bgColorTop[0], bgColorTop[1], bgColorTop[2]);
+		bgProgram.SetUniform("bgBot", bgColorBot[0], bgColorBot[1], bgColorBot[2]);
+		bgProgram.SetUniform("gammaEnabled", gammaEnabled ? 1 : 0);
+		glBindVertexArray(bgVao);
+		glDrawArrays(GL_TRIANGLES, 0, 3);
+		glEnable(GL_DEPTH_TEST);
+	}
+
 	if (showWireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 	cy::Matrix4f bias_m = cy::Matrix4f::Translation(cy::Vec3f(.5f,.5f,.5f)) * cy::Matrix4f::Scale(.5f);
@@ -151,6 +165,9 @@ static void myDisplay()
 	program.SetUniform("lightIntensity", lightIntensity);
 	program.SetUniform("shadingModel", currentShading);
 	program.SetUniform("baseColor", yarnColor[0], yarnColor[1], yarnColor[2]);
+	program.SetUniform("colorVariation", colorVariation);
+	program.SetUniform("exposure", exposure);
+	program.SetUniform("gammaEnabled", gammaEnabled ? 1 : 0);
 
 	// Blinn-Phong params
 	program.SetUniform("bp_ambient",   bp_ambient);
@@ -214,6 +231,9 @@ static void myDisplay()
 	planeProgram.SetUniform("lightPos", lv4.x, lv4.y, lv4.z);
 	planeProgram.SetUniform("lightIntensity", lightIntensity);
 	planeProgram.SetUniform("color", 0.45f, 0.45f, 0.45f);
+	planeProgram.SetUniform("checkerEnabled", checkerEnabled ? 1 : 0);
+	planeProgram.SetUniform("exposure", exposure);
+	planeProgram.SetUniform("gammaEnabled", gammaEnabled ? 1 : 0);
 	planeProgram.SetUniformMatrix4("shadowMatrix", sMat.cell);
 	renderBuffer.BindTexture(0);
 	planeProgram.SetUniform("shadowMap", 0);
@@ -364,6 +384,19 @@ static void drawImGuiPanel()
 		ImGui::SliderFloat("TRT strength",     &m_TRT_strength, 0.0f, 3.0f);
 		ImGui::SliderFloat("M Normal Influence", &m_normalInfluence, 0.0f, 1.0f);
 		if (ImGui::Button("Reset M")) { m_ambient=0.18f; m_alphaR=-0.07f; m_betaR=0.12f; m_R_strength=0.40f; m_TT_strength=1.0f; m_TRT_strength=0.70f; m_normalInfluence=0.35f; }
+	}
+
+	// ── Rendering ──
+	if (ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Checkbox("Tone mapping + Gamma", &gammaEnabled);
+		ImGui::SliderFloat("Exposure", &exposure, 0.1f, 5.0f);
+		ImGui::SliderFloat("Color variation", &colorVariation, 0.0f, 1.0f);
+		ImGui::Checkbox("Background gradient", &bgGradientEnabled);
+		if (bgGradientEnabled) {
+			ImGui::ColorEdit3("BG top", bgColorTop);
+			ImGui::ColorEdit3("BG bottom", bgColorBot);
+		}
+		ImGui::Checkbox("Floor checker", &checkerEnabled);
 	}
 
 	// ── Deep Opacity Maps ──
@@ -533,6 +566,11 @@ int main(int /*argc*/, char** /*argv*/)
 	glEnableVertexAttribArray(2);
 	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
+	glGenBuffers(1, &colVbo);
+	glBindBuffer(GL_ARRAY_BUFFER, colVbo);
+	glEnableVertexAttribArray(3);
+	glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
 	// floor VAO
 	glGenVertexArrays(1, &planeVao);
 	glBindVertexArray(planeVao);
@@ -595,6 +633,11 @@ int main(int /*argc*/, char** /*argv*/)
 		fprintf(stderr, "DOM depth shader failed\n");
 	if (!domOpacityProg.BuildFiles("dom_opacity.vert", "dom_opacity.frag"))
 		fprintf(stderr, "DOM opacity shader failed\n");
+
+	// ── background gradient ──
+	glGenVertexArrays(1, &bgVao); // empty VAO for fullscreen triangle
+	if (!bgProgram.BuildFiles("bg.vert", "bg.frag"))
+		fprintf(stderr, "Background shader failed\n");
 
 	// shadow FBO
 	renderBuffer.Initialize(true, 4096, 4096);

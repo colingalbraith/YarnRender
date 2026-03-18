@@ -13,7 +13,8 @@ static float fibHash(int row, int layer, int fib, int channel)
 void buildYarnTubes(const YarnParams& p,
 	std::vector<cy::Vec3f>& pos,
 	std::vector<cy::Vec3f>& nrm,
-	std::vector<cy::Vec3f>& tan)
+	std::vector<cy::Vec3f>& tan,
+	std::vector<cy::Vec3f>& col)
 {
 	const int nRows = 6, nLoops = 6, spl = 48;
 	float w = p.yarnH + .5f;
@@ -33,13 +34,18 @@ void buildYarnTubes(const YarnParams& p,
 			tans[i]  = yarnDeriv(t, p.yarnA, p.yarnH, p.yarnD).GetNormalized();
 		}
 		generateTube(curve, tans, tubeR, sides, pos, nrm, tan);
+		cy::Vec3f c(0.9f + 0.1f * fibHash(row,0,0,0),
+		            0.9f + 0.1f * fibHash(row,0,0,1),
+		            0.9f + 0.1f * fibHash(row,0,0,2));
+		col.resize(pos.size(), c);
 	}
 }
 
 void buildFiberTubes(const YarnParams& p,
 	std::vector<cy::Vec3f>& pos,
 	std::vector<cy::Vec3f>& nrm,
-	std::vector<cy::Vec3f>& tan)
+	std::vector<cy::Vec3f>& tan,
+	std::vector<cy::Vec3f>& col)
 {
 	const int nRows = 6, nLoops = 6, spl = 64;
 	int nOuter = p.fiberCount;
@@ -92,7 +98,11 @@ void buildFiberTubes(const YarnParams& p,
 					else { pp = fiberCurve(t+eps, p.yarnA, p.yarnH, p.yarnD, effR, layerOmega, effPhi); pm = fiberCurve(t-eps, p.yarnA, p.yarnH, p.yarnD, effR, layerOmega, effPhi); }
 					tans[i] = (pp - pm).GetNormalized();
 				}
-				generateTube(curve, tans, L.tubeR, L.sides, pos, nrm, tan);
+					generateTube(curve, tans, L.tubeR, L.sides, pos, nrm, tan);
+				cy::Vec3f fc(0.8f + 0.4f * fibHash(row,li,fib,10),
+				             0.8f + 0.4f * fibHash(row,li,fib,11),
+				             0.8f + 0.4f * fibHash(row,li,fib,12));
+				col.resize(pos.size(), fc);
 			}
 		}
 
@@ -121,6 +131,10 @@ void buildFiberTubes(const YarnParams& p,
 				tans[i] = (pp - pm).GetNormalized();
 			}
 			generateTube(curve, tans, flyTubeR, 4, pos, nrm, tan);
+			cy::Vec3f fc(0.7f + 0.6f * fibHash(row,99,fl,10),
+			             0.7f + 0.6f * fibHash(row,99,fl,11),
+			             0.7f + 0.6f * fibHash(row,99,fl,12));
+			col.resize(pos.size(), fc);
 		}
 	}
 }

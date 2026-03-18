@@ -1,6 +1,6 @@
 #version 330 core
 
-in vec3 vNormal, vPosition, vTangent;
+in vec3 vNormal, vPosition, vTangent, vFiberColor;
 in vec4 ShadowCoord;
 in float vDomDepth;
 in vec4  vDomClip;
@@ -10,6 +10,9 @@ uniform float lightIntensity;
 uniform sampler2DShadow shadowMap;
 uniform int shadingModel; // 0=Blinn-Phong, 1=Kajiya-Kay, 2=Marschner
 uniform vec3 baseColor;
+uniform float colorVariation;
+uniform float exposure;
+uniform int   gammaEnabled;
 
 // ── Deep Opacity Maps ──
 uniform int       domEnabled;
@@ -50,6 +53,12 @@ const float PI = 3.14159265;
 float gaussian(float x, float sigma)
 {
     return exp(-0.5 * x * x / (sigma * sigma));
+}
+
+vec3 acesToneMap(vec3 x)
+{
+    float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+    return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
 }
 
 // ── 1. Blinn-Phong with wrap diffuse ──
@@ -157,12 +166,15 @@ void main()
 
     if (dot(N, V) < 0.0) N = -N;
 
+    // Per-fiber color variation
+    vec3 bc = baseColor * mix(vec3(1.0), vFiberColor, colorVariation);
+
     vec3 ambient;
     vec3 color;
 
-    if      (shadingModel == 1) color = kajiyaKay(T, N, L, V, baseColor, ambient);
-    else if (shadingModel == 2) color = marschner(T, N, L, V, baseColor, ambient);
-    else                        color = blinnPhong(N, L, V, baseColor, ambient);
+    if      (shadingModel == 1) color = kajiyaKay(T, N, L, V, bc, ambient);
+    else if (shadingModel == 2) color = marschner(T, N, L, V, bc, ambient);
+    else                        color = blinnPhong(N, L, V, bc, ambient);
 
     vec3  projCoords = ShadowCoord.xyz / ShadowCoord.w;
     float visibility = 1.0;
@@ -235,6 +247,13 @@ void main()
             fragColor = vec4(vec3(visibility), 1.0);
             return;
         }
+    }
+
+    // Tone mapping and gamma
+    color *= exposure;
+    if (gammaEnabled > 0) {
+        color = acesToneMap(color);
+        color = pow(color, vec3(1.0/2.2));
     }
 
     fragColor = vec4(color, 1.0);
