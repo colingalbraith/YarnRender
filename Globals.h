@@ -7,8 +7,8 @@
 #include "cyGL.h"
 
 // ── Yarn tweakable parameters ──
+extern int   plyCount;
 extern int   fiberCount;
-extern int   flyawayCount;
 extern float yarnA;
 extern float yarnH;
 extern float yarnD;
@@ -82,6 +82,12 @@ extern float fiberGrooveDepth;
 extern float sssStrength;
 extern float sssPower;
 extern float plyAlpha;
+extern float fiberAlpha;
+extern int   flyawayCount;
+extern float flyawayLength;
+extern float flyawaySpread;
+extern float flyawayCurl;
+extern float flyawayThickness;
 extern float flyawayAlpha;
 extern GLuint colVbo, ftypeVbo, tubeUVbo, tubeVVbo;
 extern GLuint bgVao;

@@ -77,6 +77,7 @@ uniform float rimPower;
 uniform float sssStrength;
 uniform float sssPower;
 uniform float plyAlpha;
+uniform float fiberAlpha;
 uniform float flyawayAlpha;
 
 out vec4 fragColor;
@@ -297,8 +298,10 @@ void main()
         color = pow(color, vec3(1.0/2.2));
     }
 
-    // Alpha: separate ply vs flyaway opacity + Fresnel edge fade
-    float baseAlpha = mix(plyAlpha, flyawayAlpha, vFiberType);
+    // Alpha: separate ply (0) vs fiber (1) vs flyaway (2) opacity + Fresnel edge fade
+    float baseAlpha = plyAlpha;
+    if (vFiberType > 1.5) baseAlpha = flyawayAlpha;
+    else if (vFiberType > 0.5) baseAlpha = fiberAlpha;
     float edgeFade = pow(1.0 - max(dot(normalize(vNormal), V), 0.0), 2.0);
     float alpha = mix(baseAlpha, baseAlpha * 0.3, edgeFade * (1.0 - baseAlpha));
 

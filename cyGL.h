@@ -1367,7 +1367,7 @@ inline void GL::CheckError( char const *sourcefile, int line, char const *call, 
 	while ( (error = glGetError()) != GL_NO_ERROR) {
 		*outStream << "OpenGL ERROR: " << sourcefile << " (line " << line << "): ";
 		if ( call ) *outStream << call << " triggered ";
-		*outStream << gluErrorString(error) << std::endl;
+		*outStream << "GL error code " << error << std::endl;
 	}
 }
 

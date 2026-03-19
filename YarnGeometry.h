@@ -3,8 +3,10 @@
 #include "cyVector.h"
 
 struct YarnParams {
+	int   plyCount;
 	int   fiberCount;
 	int   flyawayCount;
+	float flyawayLength, flyawaySpread, flyawayCurl, flyawayThickness;
 	float yarnA, yarnH, yarnD, yarnOmega, yarnRadius;
 };
 

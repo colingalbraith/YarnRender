@@ -24,7 +24,7 @@ static void rebuildGeometry()
 	std::vector<cy::Vec3f> pos, nrm, tan, col;
 	std::vector<float> ftype, tU, tV;
 
-	YarnParams p = { fiberCount, flyawayCount, yarnA, yarnH, yarnD, yarnOmega, yarnRadius };
+	YarnParams p = { plyCount, fiberCount, flyawayCount, flyawayLength, flyawaySpread, flyawayCurl, flyawayThickness, yarnA, yarnH, yarnD, yarnOmega, yarnRadius };
 
 	if (currentGeom == 1)
 		buildFiberTubes(p, pos, nrm, tan, col, ftype, tU, tV);
@@ -185,6 +185,7 @@ static void myDisplay()
 	program.SetUniform("sssStrength", sssStrength);
 	program.SetUniform("sssPower", sssPower);
 	program.SetUniform("plyAlpha", plyAlpha);
+	program.SetUniform("fiberAlpha", fiberAlpha);
 	program.SetUniform("flyawayAlpha", flyawayAlpha);
 
 	// Blinn-Phong params
@@ -250,15 +251,14 @@ static void myDisplay()
 		program.SetUniform("domLayers", D/6.f, D/2.f, D);
 	}
 
-	if (plyAlpha < 0.99f || flyawayAlpha < 0.99f) {
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	}
+	// alpha-to-coverage: converts alpha into MSAA coverage for hair/fiber rendering
+	// avoids background bleed that standard alpha blending causes
+	glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
 
 	glBindVertexArray(vao);
 	glDrawArrays(GL_TRIANGLES, 0, VertexCount);
 
-	if (plyAlpha < 0.99f || flyawayAlpha < 0.99f) glDisable(GL_BLEND);
+	glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
 	if (showWireframe) glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 	// floor
@@ -364,13 +364,31 @@ static void drawImGuiPanel()
 		ImGui::RadioButton("Plys (5)", &currentGeom, 1);
 		if (currentGeom != prevGeom) needRebuild = true;
 
+		int prevPlies = plyCount;
+		ImGui::SliderInt("Ply count", &plyCount, 0, 48);
+		if (plyCount != prevPlies && currentGeom == 1) needRebuild = true;
+
 		int prevFibers = fiberCount;
-		ImGui::SliderInt("Ply count", &fiberCount, 0, 48);
+		ImGui::SliderInt("Fiber count", &fiberCount, 0, 1000);
 		if (fiberCount != prevFibers && currentGeom == 1) needRebuild = true;
 
-		int prevFlyaway = flyawayCount;
-		ImGui::SliderInt("Flyaway count", &flyawayCount, 0, 128);
-		if (flyawayCount != prevFlyaway && currentGeom == 1) needRebuild = true;
+		ImGui::Separator();
+		int prevFlyaways = flyawayCount;
+		ImGui::SliderInt("Flyaway count", &flyawayCount, 0, 1000);
+		ImGui::SameLine();
+		if (ImGui::Button("1K")) { flyawayCount = 1000; if (currentGeom == 1) needRebuild = true; }
+		ImGui::SameLine();
+		if (ImGui::Button("10K")) { flyawayCount = 10000; if (currentGeom == 1) needRebuild = true; }
+		if (flyawayCount != prevFlyaways && currentGeom == 1) needRebuild = true;
+		{
+			bool fc = false;
+			fc |= ImGui::SliderFloat("Flyaway length", &flyawayLength, 0.1f, 2.0f);
+			fc |= ImGui::SliderFloat("Flyaway spread", &flyawaySpread, 0.1f, 1.5f);
+			fc |= ImGui::SliderFloat("Flyaway curl", &flyawayCurl, 0.0f, 1.0f);
+			fc |= ImGui::SliderFloat("Flyaway thickness", &flyawayThickness, 0.1f, 5.0f);
+			if (fc && currentGeom == 1) needRebuild = true;
+		}
+		ImGui::SliderFloat("Flyaway alpha", &flyawayAlpha, 0.05f, 1.0f);
 
 		ImGui::Checkbox("Wireframe", &showWireframe);
 	}
@@ -491,7 +509,7 @@ static void drawImGuiPanel()
 		ImGui::SliderFloat("SSS strength", &sssStrength, 0.0f, 1.0f);
 		ImGui::SliderFloat("SSS power", &sssPower, 1.0f, 8.0f);
 		ImGui::SliderFloat("Ply alpha", &plyAlpha, 0.3f, 1.0f);
-		ImGui::SliderFloat("Flyaway alpha", &flyawayAlpha, 0.1f, 1.0f);
+		ImGui::SliderFloat("Fiber alpha", &fiberAlpha, 0.1f, 1.0f);
 	}
 
 	// ── Deep Opacity Maps ──
@@ -542,11 +560,11 @@ static void keyCallback(GLFWwindow* win, int key, int sc, int action, int mod)
 	if (key == GLFW_KEY_5 && action == GLFW_PRESS) { currentGeom = 1; needRebuild = true; }
 
 	if (key == GLFW_KEY_LEFT_BRACKET && action == GLFW_PRESS) {
-		fiberCount = std::max(2, fiberCount - 2);
+		plyCount = std::max(2, plyCount - 2);
 		if (currentGeom == 1) needRebuild = true;
 	}
 	if (key == GLFW_KEY_RIGHT_BRACKET && action == GLFW_PRESS) {
-		fiberCount = std::min(48, fiberCount + 2);
+		plyCount = std::min(48, plyCount + 2);
 		if (currentGeom == 1) needRebuild = true;
 	}
 

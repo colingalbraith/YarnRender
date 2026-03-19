@@ -1,8 +1,8 @@
 #include "Globals.h"
 
 // ── Yarn tweakable parameters ──
-int   fiberCount   = 3;
-int   flyawayCount = 6;
+int   plyCount     = 3;
+int   fiberCount   = 6;
 float yarnA        = 1.5f;
 float yarnH        = 4.0f;
 float yarnD        = 1.0f;
@@ -76,7 +76,13 @@ float fiberGrooveDepth = 0.4f;
 float sssStrength = 0.2f;
 float sssPower = 3.0f;
 float plyAlpha = 1.0f;
-float flyawayAlpha = 0.6f;
+float fiberAlpha = 0.6f;
+int   flyawayCount  = 24;
+float flyawayLength = 0.6f;
+float flyawaySpread = 0.5f;
+float flyawayCurl   = 0.4f;
+float flyawayThickness = 1.0f;
+float flyawayAlpha  = 0.25f;
 GLuint colVbo = 0, ftypeVbo = 0, tubeUVbo = 0, tubeVVbo = 0;
 GLuint bgVao = 0;
 cy::GLSLProgram bgProgram;
